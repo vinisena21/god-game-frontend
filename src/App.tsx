@@ -10,25 +10,25 @@ export default function App() {
   const [events, setEvents] = useState<any[]>([]);
   const [isChanging, setIsChanging] = useState(false);
   
-  // 🖼️ ESTADO PARA GUARDAR AS IMAGENS REAIS
+  // 🖼️ CARREGANDO AS FOTOS PARA O MAPA E OBJETOS
   const [assets, setAssets] = useState<any>({});
   
   const canvasRef = useRef<HTMLCanvasElement>(null);
 
-  // ⚡ PRELOADER DAS IMAGENS DA PASTA PUBLIC
   useEffect(() => {
-    const treeImg = new Image();
-    treeImg.src = '/arvore.png'; // Procura exatamente esse arquivo na pasta public
-    
-    const houseImg = new Image();
-    houseImg.src = '/casa.png'; // Procura exatamente esse arquivo na pasta public
+    const treeImg = new Image(); treeImg.src = '/arvore.png';
+    const houseImg = new Image(); houseImg.src = '/casa.png';
+    const grassImg = new Image(); grassImg.src = '/grama.png';
+    const waterImg = new Image(); waterImg.src = '/agua.png';
 
     Promise.all([
       new Promise(resolve => { treeImg.onload = resolve; treeImg.onerror = resolve; }),
-      new Promise(resolve => { houseImg.onload = resolve; houseImg.onerror = resolve; })
+      new Promise(resolve => { houseImg.onload = resolve; houseImg.onerror = resolve; }),
+      new Promise(resolve => { grassImg.onload = resolve; grassImg.onerror = resolve; }),
+      new Promise(resolve => { waterImg.onload = resolve; waterImg.onerror = resolve; })
     ]).then(() => {
-      setAssets({ tree: treeImg, house: houseImg });
-      console.log('✅ Assets Gráficos carregados com sucesso!');
+      setAssets({ tree: treeImg, house: houseImg, grass: grassImg, water: waterImg });
+      console.log('✅ Texturas e Sprites carregados!');
     });
   }, []);
 
@@ -54,7 +54,7 @@ export default function App() {
     fetchData(); setIsChanging(false);
   };
 
-  // 🎨 MOTOR GRÁFICO - AGORA COM SUPORTE A SPRITES REAIS (.PNG)
+  // 🎨 MOTOR GRÁFICO - ILHA TEXTURIZADA
   useEffect(() => {
     const canvas = canvasRef.current;
     if (!canvas) return;
@@ -66,22 +66,39 @@ export default function App() {
     const scaleX = width / 100;
     const scaleY = height / 100;
 
-    // Fundo, Areia e Rio (Matemática base mantida)
+    // Fundo Oceano
     ctx.clearRect(0, 0, width, height);
     ctx.fillStyle = '#0f172a'; ctx.fillRect(0, 0, width, height);
+
+    // Bordas de Areia
     ctx.fillStyle = '#fef08a'; ctx.beginPath(); if (ctx.roundRect) ctx.roundRect(width * 0.03, height * 0.03, width * 0.94, height * 0.94, 50); ctx.fill();
 
+    // ⚡ TEXTURA DE GRAMA NO CHÃO
     ctx.save();
     ctx.beginPath(); if (ctx.roundRect) ctx.roundRect(width * 0.05, height * 0.05, width * 0.9, height * 0.9, 40); ctx.clip();
 
-    for (let x = 0; x < 100; x += 2) {
-      for (let y = 0; y < 100; y += 2) {
-        ctx.fillStyle = (x + y) % 4 === 0 ? '#10b981' : '#059669'; 
-        ctx.fillRect(x * scaleX, y * scaleY, 2 * scaleX, 2 * scaleY);
-      }
+    if (assets.grass && assets.grass.complete && assets.grass.naturalHeight !== 0) {
+       const grassPattern = ctx.createPattern(assets.grass, 'repeat');
+       if (grassPattern) {
+           ctx.fillStyle = grassPattern;
+           ctx.fillRect(0, 0, width, height);
+       }
+    } else {
+       // Fallback se a imagem não carregar
+       ctx.fillStyle = '#10b981'; ctx.fillRect(0, 0, width, height);
     }
 
-    ctx.shadowColor = 'rgba(0,0,0,0.3)'; ctx.shadowBlur = 10; ctx.lineCap = 'round'; ctx.lineJoin = 'round'; ctx.strokeStyle = '#0284c7';
+    // ⚡ TEXTURA DE ÁGUA NO RIO
+    ctx.shadowColor = 'rgba(0,0,0,0.4)'; ctx.shadowBlur = 10; ctx.lineCap = 'round'; ctx.lineJoin = 'round'; 
+    
+    if (assets.water && assets.water.complete && assets.water.naturalHeight !== 0) {
+       const waterPattern = ctx.createPattern(assets.water, 'repeat');
+       if (waterPattern) ctx.strokeStyle = waterPattern;
+    } else {
+       ctx.strokeStyle = '#0284c7';
+    }
+
+    // Desenhando os canais do rio
     ctx.lineWidth = 6 * scaleX; ctx.beginPath(); ctx.moveTo(40 * scaleX, 0); ctx.bezierCurveTo(60 * scaleX, 30 * scaleY, 35 * scaleX, 60 * scaleY, 55 * scaleX, 100 * scaleY); ctx.stroke();
     ctx.lineWidth = 3 * scaleX; ctx.beginPath(); ctx.moveTo(50 * scaleX, 45 * scaleY); ctx.quadraticCurveTo(70 * scaleX, 50 * scaleY, 85 * scaleX, 35 * scaleY); ctx.stroke();
     ctx.beginPath(); ctx.moveTo(43 * scaleX, 75 * scaleY); ctx.quadraticCurveTo(20 * scaleX, 80 * scaleY, 15 * scaleX, 95 * scaleY); ctx.stroke();
@@ -89,19 +106,13 @@ export default function App() {
 
     ctx.shadowColor = 'rgba(0, 0, 0, 0.5)'; ctx.shadowBlur = 6; ctx.shadowOffsetY = 4;
 
-    // --- RENDERIZANDO ENTIDADES ---
+    // Entidades
     entities.forEach(e => {
       const ex = e.x * scaleX; const ey = e.y * scaleY;
       
       if (e.type === 'Árvore Anciã') {
-        // ⚡ O PULO DO GATO: Se a imagem existir na pasta public, desenha a imagem!
-        if (assets.tree && assets.tree.complete && assets.tree.naturalHeight !== 0) {
-            ctx.drawImage(assets.tree, ex - 15, ey - 30, 30, 40);
-        } else {
-            // Se você ainda não subiu a imagem, desenha o backup em código pra não quebrar o jogo
-            ctx.fillStyle = '#451a03'; ctx.fillRect(ex - 3, ey - 5, 6, 12); 
-            ctx.fillStyle = '#065f46'; ctx.beginPath(); ctx.arc(ex, ey - 10, 10, 0, Math.PI*2); ctx.fill(); 
-        }
+        if (assets.tree && assets.tree.complete && assets.tree.naturalHeight !== 0) ctx.drawImage(assets.tree, ex - 15, ey - 30, 30, 40);
+        else { ctx.fillStyle = '#451a03'; ctx.fillRect(ex - 3, ey - 5, 6, 12); ctx.fillStyle = '#065f46'; ctx.beginPath(); ctx.arc(ex, ey - 10, 10, 0, Math.PI*2); ctx.fill(); }
       } 
       else if (e.type === 'Jazida de Ouro') {
         ctx.fillStyle = '#94a3b8'; ctx.beginPath(); ctx.arc(ex, ey, 8, 0, Math.PI*2); ctx.fill(); 
@@ -117,13 +128,8 @@ export default function App() {
       const sx = s.x * scaleX; const sy = s.y * scaleY;
       
       if (s.type === 'Casa') {
-         // ⚡ Lê a foto da casa se ela estiver na pasta public
-         if (assets.house && assets.house.complete && assets.house.naturalHeight !== 0) {
-            ctx.drawImage(assets.house, sx - 20, sy - 30, 40, 40);
-         } else {
-            ctx.fillStyle = '#b45309'; ctx.fillRect(sx - 14, sy - 10, 28, 20); 
-            ctx.fillStyle = '#7f1d1d'; ctx.beginPath(); ctx.moveTo(sx - 18, sy - 10); ctx.lineTo(sx, sy - 25); ctx.lineTo(sx + 18, sy - 10); ctx.fill();
-         }
+         if (assets.house && assets.house.complete && assets.house.naturalHeight !== 0) ctx.drawImage(assets.house, sx - 20, sy - 30, 40, 40);
+         else { ctx.fillStyle = '#b45309'; ctx.fillRect(sx - 14, sy - 10, 28, 20); ctx.fillStyle = '#7f1d1d'; ctx.beginPath(); ctx.moveTo(sx - 18, sy - 10); ctx.lineTo(sx, sy - 25); ctx.lineTo(sx + 18, sy - 10); ctx.fill(); }
       }
       ctx.shadowBlur = 0; ctx.fillStyle = '#fff'; ctx.font = 'bold 10px Arial'; ctx.textAlign = 'center';
       ctx.fillText(s.agent_name, sx, sy - 32); ctx.shadowBlur = 6;
@@ -148,7 +154,7 @@ export default function App() {
       ctx.shadowBlur = 6; 
     });
 
-  }, [worldState, agents, structures, entities, assets]); // <-- Agora recarrega quando as fotos ficarem prontas!
+  }, [worldState, agents, structures, entities, assets]); 
 
   useEffect(() => {
     fetchData();
@@ -174,10 +180,10 @@ export default function App() {
           height={600} 
           style={{ backgroundColor: '#000', borderRadius: '16px', border: '4px solid #1e293b', boxShadow: '0 10px 30px rgba(0,0,0,0.8)' }} 
         />
-        <p style={{ color: '#888', fontSize: '0.9rem', marginTop: '0.5rem' }}>O motor agora suporta imagens reais (.png) da pasta public.</p>
+        <p style={{ color: '#888', fontSize: '0.9rem', marginTop: '0.5rem' }}>Mapa revestido com texturas originais (Tiles).</p>
       </section>
 
-      {/* Os painéis de Livro das Eras e Cidadãos Ativos continuam inalterados aqui para baixo... */}
+      {/* Painéis mantidos... */}
       <div style={{ display: 'flex', gap: '2rem', flexWrap: 'wrap', maxWidth: '1400px', margin: '0 auto' }}>
         <section style={{ flex: '1 1 400px' }}>
           <h2>📜 Livro das Eras</h2>
