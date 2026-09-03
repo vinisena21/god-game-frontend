@@ -80,7 +80,7 @@ export default function App() {
     }
   };
 
-  // Motor Gráfico Canvas (Intacto)
+  // Motor Gráfico Canvas
   useEffect(() => {
     const canvas = canvasRef.current;
     if (!canvas) return;
@@ -163,6 +163,17 @@ export default function App() {
       ctx.fillStyle = '#0ea5e9'; ctx.fillRect(ax - 4, ay - 8, 8, 3); 
 
       ctx.shadowBlur = 0; 
+      
+      // 🧠 A MÁGICA VISUAL DO CÉREBRO SOCIAL: BALÃO DE FALA
+      // Se a última entrada do Livro das Eras envolver esse agente e for um Diálogo, desenha o balão
+      const lastEvent = events[0];
+      if (lastEvent && lastEvent.type === 'DIÁLOGO' && lastEvent.message.includes(a.name) && (worldState.current_tick - lastEvent.tick) < 5) {
+        ctx.fillStyle = '#ffffff';
+        ctx.beginPath(); if (ctx.roundRect) ctx.roundRect(ax - 15, ay - 38, 30, 16, 5); ctx.fill();
+        ctx.beginPath(); ctx.moveTo(ax - 5, ay - 22); ctx.lineTo(ax, ay - 18); ctx.lineTo(ax + 5, ay - 22); ctx.fill();
+        ctx.fillStyle = '#000'; ctx.font = 'bold 12px Arial'; ctx.fillText('💬', ax, ay - 26);
+      }
+
       if (a.society && a.society !== 'Nenhuma') { ctx.font = 'bold 9px Arial'; ctx.fillStyle = '#c084fc'; ctx.textAlign = 'center'; ctx.fillText(`[${a.society}]`, ax, ay - 24); }
       ctx.font = 'bold 12px Arial'; ctx.fillStyle = '#111'; ctx.textAlign = 'center'; ctx.fillText(a.name, ax, ay - 14); 
       ctx.fillStyle = '#4ade80'; ctx.fillText(a.name, ax-1, ay - 15);
@@ -170,7 +181,7 @@ export default function App() {
       ctx.shadowBlur = 6; 
     });
 
-  }, [worldState, agents, structures, entities, assets]); 
+  }, [worldState, agents, structures, entities, assets, events]); // Adicionei 'events' na dependência do Canvas para o balão piscar na hora certa
 
   const btnStyle = { padding: '0.6rem 1.2rem', cursor: isChanging ? 'wait' : 'pointer', backgroundColor: '#222', color: '#fff', border: '1px solid #444', borderRadius: '4px', fontWeight: 'bold' };
 
@@ -178,7 +189,7 @@ export default function App() {
     <div style={{ padding: '2rem', fontFamily: 'system-ui, sans-serif', backgroundColor: '#050505', color: '#e5e5e5', minHeight: '100vh' }}>
       <section style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', marginBottom: '2rem' }}>
         <div style={{ display: 'flex', justifyContent: 'space-between', width: '100%', maxWidth: '900px', marginBottom: '1rem', backgroundColor: '#111', padding: '1rem', borderRadius: '12px', border: '1px solid #333' }}>
-          <h1 style={{ margin: 0, color: '#fff', fontSize: '1.5rem' }}>👁️ Era 3D (Tempo Real ⚡) - <span style={{color: '#4ade80'}}>Tick {worldState.current_tick}</span></h1>
+          <h1 style={{ margin: 0, color: '#fff', fontSize: '1.5rem' }}>👁️ Era 3D (Social 🧠) - <span style={{color: '#4ade80'}}>Tick {worldState.current_tick}</span></h1>
           <div style={{ display: 'flex', gap: '0.5rem' }}>
              <button disabled={isChanging} onClick={resetWorld} style={{ ...btnStyle, backgroundColor: '#7f1d1d', borderColor: '#ef4444' }}>☄️ GERAR NOVO MAPA</button>
           </div>
@@ -204,7 +215,16 @@ export default function App() {
           <h2>📜 Livro das Eras</h2>
           <div style={{ backgroundColor: '#111', padding: '1rem', borderRadius: '12px', border: '1px solid #333', height: '600px', overflowY: 'auto' }}>
             {events.map(ev => (
-              <div key={ev.id} style={{ borderLeft: `3px solid ${ev.type === 'CONFLITO' || ev.type === 'PUNIÇÃO' ? '#ef4444' : ev.type === 'DIÁLOGO' ? '#3b82f6' : '#4ade80'}`, paddingLeft: '10px', paddingBottom: '0.8rem', marginBottom: '0.8rem', borderBottom: '1px solid #222' }}>
+              <div key={ev.id} style={{ 
+                // A outra ponta da mágica social: as cores certas pro log
+                borderLeft: `3px solid ${
+                  ev.type === 'CONFLITO' || ev.type === 'PUNIÇÃO' ? '#ef4444' : 
+                  ev.type === 'DIÁLOGO' ? '#3b82f6' : 
+                  ev.type === 'ALIANÇA' || ev.type === 'COMÉRCIO' || ev.type === 'MILAGRE' ? '#4ade80' : 
+                  '#888'
+                }`, 
+                paddingLeft: '10px', paddingBottom: '0.8rem', marginBottom: '0.8rem', borderBottom: '1px solid #222' 
+              }}>
                 <span style={{ fontSize: '0.8rem', color: '#aaa', fontWeight: 'bold' }}>[Tick {ev.tick}] {ev.type}</span>
                 <p style={{ margin: '0.2rem 0 0', fontSize: '0.95rem', color: '#eee' }}>{ev.message}</p>
               </div>
