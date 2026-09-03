@@ -1,9 +1,12 @@
 import { useState, useEffect, useRef } from 'react';
+import { io } from 'socket.io-client';
 
 const API_URL = import.meta.env.VITE_API_URL || 'http://localhost:3333';
+// ⚡ Conecta o "radinho" diretamente no servidor
+const socket = io(API_URL);
 
 export default function App() {
-  const [worldState, setWorldState] = useState({ current_tick: 0, weather: 'Carregando...' });
+  const [worldState, setWorldState] = useState({ current_tick: 0, weather: 'Sincronizando...' });
   const [agents, setAgents] = useState<any[]>([]);
   const [structures, setStructures] = useState<any[]>([]);
   const [entities, setEntities] = useState<any[]>([]);
@@ -13,6 +16,7 @@ export default function App() {
   const [assets, setAssets] = useState<any>({});
   const canvasRef = useRef<HTMLCanvasElement>(null);
 
+  // Carrega as imagens HD
   useEffect(() => {
     const treeImg = new Image(); treeImg.src = '/arvore.png';
     const houseImg = new Image(); houseImg.src = '/casa.png';
@@ -33,35 +37,34 @@ export default function App() {
     });
   }, []);
 
-  const fetchData = async () => {
-    try {
-      const worldRes = await fetch(`${API_URL}/api/world`);
-      if (worldRes.ok) setWorldState(await worldRes.json());
-      const agentsRes = await fetch(`${API_URL}/api/agents`);
-      if (agentsRes.ok) setAgents(await agentsRes.json());
-      const structRes = await fetch(`${API_URL}/api/world/structures`);
-      if (structRes.ok) setStructures(await structRes.json());
-      const entRes = await fetch(`${API_URL}/api/world/entities`);
-      if (entRes.ok) setEntities(await entRes.json());
-      const eventsRes = await fetch(`${API_URL}/api/world/events`);
-      if (eventsRes.ok) setEvents(await eventsRes.json());
-    } catch (error) {}
-  };
+  // ⚡ A MÁGICA DO TEMPO REAL
+  useEffect(() => {
+    // Fica ouvindo o canal 'gameState'. Quando o servidor gritar, a tela atualiza na hora!
+    socket.on('gameState', (data) => {
+      setWorldState(data.world);
+      setAgents(data.agents);
+      setStructures(data.structures);
+      setEntities(data.entities);
+      setEvents(data.events);
+    });
+
+    return () => {
+      socket.off('gameState');
+    };
+  }, []);
 
   const resetWorld = async () => {
     if (!window.confirm("⚠️ GERAR NOVA ILHA? A civilização recomeçará do zero.")) return;
     setIsChanging(true);
     await fetch(`${API_URL}/api/world/reset`, { method: 'POST' });
-    fetchData(); setIsChanging(false);
+    setIsChanging(false);
   };
 
-  // ⚡ A MÃO DE DEUS: Captura o clique no Canvas e manda pra API
   const handleGodAction = async (e: React.MouseEvent<HTMLCanvasElement>, actionType: 'RAIO' | 'MILAGRE') => {
-    e.preventDefault(); // Impede o menu de contexto de abrir no clique direito
+    e.preventDefault(); 
     const canvas = canvasRef.current;
     if (!canvas) return;
     
-    // Matemática para converter a posição da tela na coordenada do banco de dados (0 a 100)
     const rect = canvas.getBoundingClientRect();
     const x = Math.max(0, Math.min(100, Math.round(((e.clientX - rect.left) / canvas.width) * 100)));
     const y = Math.max(0, Math.min(100, Math.round(((e.clientY - rect.top) / canvas.height) * 100)));
@@ -72,12 +75,12 @@ export default function App() {
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ action: actionType, x, y })
       });
-      fetchData(); // Atualiza a tela instantaneamente pra você ver o estrago
     } catch (error) {
       console.error("Falha ao invocar poder divino:", error);
     }
   };
 
+  // Motor Gráfico Canvas (Intacto)
   useEffect(() => {
     const canvas = canvasRef.current;
     if (!canvas) return;
@@ -126,7 +129,6 @@ export default function App() {
 
     entities.forEach(e => {
       const ex = e.x * scaleX; const ey = e.y * scaleY;
-      
       if (e.type === 'Árvore Anciã') {
         if (!drawProportional(assets.tree, ex, ey, 55)) { ctx.fillStyle = '#451a03'; ctx.fillRect(ex - 3, ey - 5, 6, 12); ctx.fillStyle = '#065f46'; ctx.beginPath(); ctx.arc(ex, ey - 10, 10, 0, Math.PI*2); ctx.fill(); }
       } 
@@ -170,25 +172,18 @@ export default function App() {
 
   }, [worldState, agents, structures, entities, assets]); 
 
-  useEffect(() => {
-    fetchData();
-    const interval = setInterval(fetchData, 1000); 
-    return () => clearInterval(interval);
-  }, []);
-
   const btnStyle = { padding: '0.6rem 1.2rem', cursor: isChanging ? 'wait' : 'pointer', backgroundColor: '#222', color: '#fff', border: '1px solid #444', borderRadius: '4px', fontWeight: 'bold' };
 
   return (
     <div style={{ padding: '2rem', fontFamily: 'system-ui, sans-serif', backgroundColor: '#050505', color: '#e5e5e5', minHeight: '100vh' }}>
       <section style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', marginBottom: '2rem' }}>
         <div style={{ display: 'flex', justifyContent: 'space-between', width: '100%', maxWidth: '900px', marginBottom: '1rem', backgroundColor: '#111', padding: '1rem', borderRadius: '12px', border: '1px solid #333' }}>
-          <h1 style={{ margin: 0, color: '#fff', fontSize: '1.5rem' }}>👁️ Era 3D - <span style={{color: '#4ade80'}}>Tick {worldState.current_tick}</span></h1>
+          <h1 style={{ margin: 0, color: '#fff', fontSize: '1.5rem' }}>👁️ Era 3D (Tempo Real ⚡) - <span style={{color: '#4ade80'}}>Tick {worldState.current_tick}</span></h1>
           <div style={{ display: 'flex', gap: '0.5rem' }}>
              <button disabled={isChanging} onClick={resetWorld} style={{ ...btnStyle, backgroundColor: '#7f1d1d', borderColor: '#ef4444' }}>☄️ GERAR NOVO MAPA</button>
           </div>
         </div>
 
-        {/* ⚡ A MÁGICA ACONTECE AQUI NO CANVAS */}
         <canvas 
           ref={canvasRef} 
           width={900} 
@@ -204,7 +199,6 @@ export default function App() {
         </div>
       </section>
 
-      {/* Painéis intocados... */}
       <div style={{ display: 'flex', gap: '2rem', flexWrap: 'wrap', maxWidth: '1400px', margin: '0 auto' }}>
         <section style={{ flex: '1 1 400px' }}>
           <h2>📜 Livro das Eras</h2>
