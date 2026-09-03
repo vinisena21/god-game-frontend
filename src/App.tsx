@@ -13,12 +13,9 @@ export default function App() {
   const [assets, setAssets] = useState<any>({});
   const canvasRef = useRef<HTMLCanvasElement>(null);
 
-  // ⚡ CARREGANDO SEUS GRÁFICOS REALISTAS
   useEffect(() => {
     const treeImg = new Image(); treeImg.src = '/arvore.png';
     const houseImg = new Image(); houseImg.src = '/casa.png';
-    
-    // Mantendo os assets velhos caso não tenham sido substituídos
     const grassImg = new Image(); grassImg.src = '/grama.png';
     const waterImg = new Image(); waterImg.src = '/agua.png';
     const deerImg = new Image(); deerImg.src = '/cervo.png';
@@ -58,7 +55,29 @@ export default function App() {
     fetchData(); setIsChanging(false);
   };
 
-  // 🎨 MOTOR GRÁFICO - SUPORTE A RENDERS 3D DE ALTA RESOLUÇÃO
+  // ⚡ A MÃO DE DEUS: Captura o clique no Canvas e manda pra API
+  const handleGodAction = async (e: React.MouseEvent<HTMLCanvasElement>, actionType: 'RAIO' | 'MILAGRE') => {
+    e.preventDefault(); // Impede o menu de contexto de abrir no clique direito
+    const canvas = canvasRef.current;
+    if (!canvas) return;
+    
+    // Matemática para converter a posição da tela na coordenada do banco de dados (0 a 100)
+    const rect = canvas.getBoundingClientRect();
+    const x = Math.max(0, Math.min(100, Math.round(((e.clientX - rect.left) / canvas.width) * 100)));
+    const y = Math.max(0, Math.min(100, Math.round(((e.clientY - rect.top) / canvas.height) * 100)));
+
+    try {
+      await fetch(`${API_URL}/api/world/god-action`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ action: actionType, x, y })
+      });
+      fetchData(); // Atualiza a tela instantaneamente pra você ver o estrago
+    } catch (error) {
+      console.error("Falha ao invocar poder divino:", error);
+    }
+  };
+
   useEffect(() => {
     const canvas = canvasRef.current;
     if (!canvas) return;
@@ -95,12 +114,10 @@ export default function App() {
 
     ctx.shadowColor = 'rgba(0, 0, 0, 0.5)'; ctx.shadowBlur = 6; ctx.shadowOffsetY = 4;
 
-    // ⚡ FUNÇÃO INTELIGENTE DE PROPORÇÃO PARA IMAGENS HD
     const drawProportional = (img: HTMLImageElement, x: number, y: number, baseWidth: number) => {
       if (img && img.complete && img.naturalWidth > 0) {
         const aspectRatio = img.naturalHeight / img.naturalWidth;
         const targetHeight = baseWidth * aspectRatio;
-        // Desenha a imagem centralizada no X, com a base encostada no chão (Y)
         ctx.drawImage(img, x - (baseWidth / 2), y - targetHeight + (baseWidth * 0.2), baseWidth, targetHeight);
         return true;
       }
@@ -111,10 +128,7 @@ export default function App() {
       const ex = e.x * scaleX; const ey = e.y * scaleY;
       
       if (e.type === 'Árvore Anciã') {
-        // BaseWidth 55 para árvores grandes
-        if (!drawProportional(assets.tree, ex, ey, 55)) {
-           ctx.fillStyle = '#451a03'; ctx.fillRect(ex - 3, ey - 5, 6, 12); ctx.fillStyle = '#065f46'; ctx.beginPath(); ctx.arc(ex, ey - 10, 10, 0, Math.PI*2); ctx.fill(); 
-        }
+        if (!drawProportional(assets.tree, ex, ey, 55)) { ctx.fillStyle = '#451a03'; ctx.fillRect(ex - 3, ey - 5, 6, 12); ctx.fillStyle = '#065f46'; ctx.beginPath(); ctx.arc(ex, ey - 10, 10, 0, Math.PI*2); ctx.fill(); }
       } 
       else if (e.type === 'Jazida de Ouro') {
         ctx.fillStyle = '#94a3b8'; ctx.beginPath(); ctx.arc(ex, ey, 8, 0, Math.PI*2); ctx.fill(); 
@@ -130,12 +144,8 @@ export default function App() {
 
     structures.forEach(s => {
       const sx = s.x * scaleX; const sy = s.y * scaleY;
-      
       if (s.type === 'Casa') {
-         // BaseWidth 65 para as casas 3D ficarem imponentes no mapa
-         if (!drawProportional(assets.house, sx, sy, 65)) {
-            ctx.fillStyle = '#b45309'; ctx.fillRect(sx - 14, sy - 10, 28, 20); ctx.fillStyle = '#7f1d1d'; ctx.beginPath(); ctx.moveTo(sx - 18, sy - 10); ctx.lineTo(sx, sy - 25); ctx.lineTo(sx + 18, sy - 10); ctx.fill(); 
-         }
+         if (!drawProportional(assets.house, sx, sy, 65)) { ctx.fillStyle = '#b45309'; ctx.fillRect(sx - 14, sy - 10, 28, 20); ctx.fillStyle = '#7f1d1d'; ctx.beginPath(); ctx.moveTo(sx - 18, sy - 10); ctx.lineTo(sx, sy - 25); ctx.lineTo(sx + 18, sy - 10); ctx.fill(); }
       }
       ctx.shadowBlur = 0; ctx.fillStyle = '#fff'; ctx.font = 'bold 10px Arial'; ctx.textAlign = 'center';
       ctx.fillText(s.agent_name, sx, sy - 35); ctx.shadowBlur = 6;
@@ -151,9 +161,7 @@ export default function App() {
       ctx.fillStyle = '#0ea5e9'; ctx.fillRect(ax - 4, ay - 8, 8, 3); 
 
       ctx.shadowBlur = 0; 
-      if (a.society && a.society !== 'Nenhuma') {
-        ctx.font = 'bold 9px Arial'; ctx.fillStyle = '#c084fc'; ctx.textAlign = 'center'; ctx.fillText(`[${a.society}]`, ax, ay - 24);
-      }
+      if (a.society && a.society !== 'Nenhuma') { ctx.font = 'bold 9px Arial'; ctx.fillStyle = '#c084fc'; ctx.textAlign = 'center'; ctx.fillText(`[${a.society}]`, ax, ay - 24); }
       ctx.font = 'bold 12px Arial'; ctx.fillStyle = '#111'; ctx.textAlign = 'center'; ctx.fillText(a.name, ax, ay - 14); 
       ctx.fillStyle = '#4ade80'; ctx.fillText(a.name, ax-1, ay - 15);
       ctx.fillStyle = '#7f1d1d'; ctx.fillRect(ax - 12, ay + 12, 24, 4); ctx.fillStyle = '#22c55e'; ctx.fillRect(ax - 12, ay + 12, 24 * (a.hp / 100), 4);
@@ -174,27 +182,35 @@ export default function App() {
     <div style={{ padding: '2rem', fontFamily: 'system-ui, sans-serif', backgroundColor: '#050505', color: '#e5e5e5', minHeight: '100vh' }}>
       <section style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', marginBottom: '2rem' }}>
         <div style={{ display: 'flex', justifyContent: 'space-between', width: '100%', maxWidth: '900px', marginBottom: '1rem', backgroundColor: '#111', padding: '1rem', borderRadius: '12px', border: '1px solid #333' }}>
-          <h1 style={{ margin: 0, color: '#fff', fontSize: '1.5rem' }}>👁️ Era 3D Alta Definição - <span style={{color: '#4ade80'}}>Tick {worldState.current_tick}</span></h1>
+          <h1 style={{ margin: 0, color: '#fff', fontSize: '1.5rem' }}>👁️ Era 3D - <span style={{color: '#4ade80'}}>Tick {worldState.current_tick}</span></h1>
           <div style={{ display: 'flex', gap: '0.5rem' }}>
              <button disabled={isChanging} onClick={resetWorld} style={{ ...btnStyle, backgroundColor: '#7f1d1d', borderColor: '#ef4444' }}>☄️ GERAR NOVO MAPA</button>
           </div>
         </div>
 
+        {/* ⚡ A MÁGICA ACONTECE AQUI NO CANVAS */}
         <canvas 
           ref={canvasRef} 
           width={900} 
           height={600} 
-          style={{ backgroundColor: '#000', borderRadius: '16px', border: '4px solid #1e293b', boxShadow: '0 10px 30px rgba(0,0,0,0.8)' }} 
+          onClick={(e) => handleGodAction(e, 'RAIO')} 
+          onContextMenu={(e) => handleGodAction(e, 'MILAGRE')}
+          style={{ backgroundColor: '#000', borderRadius: '16px', border: '4px solid #1e293b', boxShadow: '0 10px 30px rgba(0,0,0,0.8)', cursor: 'crosshair' }} 
         />
+        
+        <div style={{ display: 'flex', gap: '2rem', marginTop: '1rem', color: '#aaa', fontSize: '0.9rem' }}>
+          <span><b style={{color: '#ef4444'}}>Clique Esquerdo:</b> ⚡ Raio (Destruição)</span>
+          <span><b style={{color: '#4ade80'}}>Clique Direito:</b> ✨ Milagre (Criar Árvore)</span>
+        </div>
       </section>
 
-      {/* Livro das Eras e Painel de Agentes intactos */}
+      {/* Painéis intocados... */}
       <div style={{ display: 'flex', gap: '2rem', flexWrap: 'wrap', maxWidth: '1400px', margin: '0 auto' }}>
         <section style={{ flex: '1 1 400px' }}>
           <h2>📜 Livro das Eras</h2>
           <div style={{ backgroundColor: '#111', padding: '1rem', borderRadius: '12px', border: '1px solid #333', height: '600px', overflowY: 'auto' }}>
             {events.map(ev => (
-              <div key={ev.id} style={{ borderLeft: `3px solid ${ev.type === 'CONFLITO' ? '#ef4444' : ev.type === 'DIÁLOGO' ? '#3b82f6' : '#4ade80'}`, paddingLeft: '10px', paddingBottom: '0.8rem', marginBottom: '0.8rem', borderBottom: '1px solid #222' }}>
+              <div key={ev.id} style={{ borderLeft: `3px solid ${ev.type === 'CONFLITO' || ev.type === 'PUNIÇÃO' ? '#ef4444' : ev.type === 'DIÁLOGO' ? '#3b82f6' : '#4ade80'}`, paddingLeft: '10px', paddingBottom: '0.8rem', marginBottom: '0.8rem', borderBottom: '1px solid #222' }}>
                 <span style={{ fontSize: '0.8rem', color: '#aaa', fontWeight: 'bold' }}>[Tick {ev.tick}] {ev.type}</span>
                 <p style={{ margin: '0.2rem 0 0', fontSize: '0.95rem', color: '#eee' }}>{ev.message}</p>
               </div>
