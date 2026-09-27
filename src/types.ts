@@ -44,13 +44,25 @@ export interface GameEvent {
   message: string;
 }
 
+export type ElementType = 'FOGO' | 'AGUA' | 'TERRA' | 'AR' | 'VIDA';
+
+export interface LastCast {
+  element: ElementType;
+  x: number;
+  y: number;
+  radius: number;
+  tick: number;
+}
+
 export interface DivineState {
   energy: number;
   maxEnergy: number;
   regenPerTick: number;
-  /** action → ticks restantes de cooldown */
   cooldowns: Record<string, number>;
   costs: Record<string, number>;
+  radii?: Record<string, number>;
+  lastCast?: LastCast | null;
+  elements?: ElementType[];
 }
 
 export interface GameState {
@@ -65,3 +77,6 @@ export interface GameState {
 export type GodAction = 'RAIO' | 'MILAGRE';
 
 export type Blessing = 'heal' | 'food' | 'water' | 'resources' | 'full';
+
+/** Modo de clique no mapa */
+export type MapMode = 'RAIO' | 'MILAGRE' | ElementType;
