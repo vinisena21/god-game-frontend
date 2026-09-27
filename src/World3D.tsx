@@ -4,7 +4,7 @@ import { OrbitControls, Text, Sky, Cloud, Float } from '@react-three/drei';
 import * as THREE from 'three';
 import type { Agent, Structure, Entity, DivineState, MapMode } from './types';
 import { ElementalParticles, RainParticles } from './Particles';
-import { InstancedEntities } from './InstancedWorld';
+import { InstancedEntities, worldSpatial } from './InstancedWorld';
 
 function to3D(x: number, y: number): [number, number, number] {
   return [(x - 50) * 0.6, 0, (y - 50) * 0.6];
@@ -17,10 +17,24 @@ function from3D(px: number, pz: number): { x: number; y: number } {
   };
 }
 
+const NO_RAYCAST = () => {};
+
 function Island() {
   const geo = useMemo(() => new THREE.CircleGeometry(38, 48), []);
+  const groupRef = useRef<THREE.Group>(null);
+
+  // desliga raycast em todos os filhos (só o ClickPlane recebe clique)
+  useFrame(() => {
+    const g = groupRef.current;
+    if (!g || (g.userData as { rayOff?: boolean }).rayOff) return;
+    g.traverse((obj) => {
+      if ((obj as THREE.Mesh).isMesh) (obj as THREE.Mesh).raycast = NO_RAYCAST;
+    });
+    (g.userData as { rayOff?: boolean }).rayOff = true;
+  });
+
   return (
-    <group>
+    <group ref={groupRef}>
       <mesh rotation={[-Math.PI / 2, 0, 0]} position={[0, -0.4, 0]}>
         <planeGeometry args={[200, 200]} />
         <meshStandardMaterial color="#0c4a6e" roughness={0.3} metalness={0.2} />
@@ -40,15 +54,30 @@ function Island() {
   );
 }
 
+/**
+ * Único mesh que raycasta no chão.
+ * Colisão com instâncias: SpatialHash (sem percorrer InstancedMesh).
+ */
 function ClickPlane({ onGroundClick }: { onGroundClick: (x: number, y: number) => void }) {
   const handle = useCallback(
     (e: { stopPropagation: () => void; point: { x: number; z: number } }) => {
       e.stopPropagation();
-      const { x, y } = from3D(e.point.x, e.point.z);
+      let px = e.point.x;
+      let pz = e.point.z;
+
+      // empurra o ponto para fora de sólidos próximos (árvore/casa/etc.)
+      if (worldSpatial.size > 0) {
+        const resolved = worldSpatial.resolveCircle(px, pz, 0.35);
+        px = resolved.x;
+        pz = resolved.z;
+      }
+
+      const { x, y } = from3D(px, pz);
       onGroundClick(x, y);
     },
     [onGroundClick]
   );
+
   return (
     <mesh rotation={[-Math.PI / 2, 0, 0]} position={[0, 0.08, 0]} onClick={handle}>
       <circleGeometry args={[38, 48]} />
@@ -57,7 +86,6 @@ function ClickPlane({ onGroundClick }: { onGroundClick: (x: number, y: number) =
   );
 }
 
-/** Agentes ficam individuais (Text + HP bar únicos) */
 function Agent3D({ agent, selected }: { agent: Agent; selected: boolean }) {
   const [px, , pz] = to3D(agent.x, agent.y);
   const ref = useRef<THREE.Group>(null);
@@ -105,7 +133,6 @@ function Agent3D({ agent, selected }: { agent: Agent; selected: boolean }) {
   );
 }
 
-/** Labels de casas (poucos — Text não instancia bem) */
 function HouseLabels({ structures }: { structures: Structure[] }) {
   return (
     <>
@@ -197,7 +224,6 @@ function Scene(props: World3DProps) {
       <Island />
       <ClickPlane onGroundClick={onGroundClick} />
 
-      {/* 1–3 draw calls por tipo em vez de N meshes */}
       <InstancedEntities entities={entities} structures={structures} />
       <HouseLabels structures={structures} />
 
