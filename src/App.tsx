@@ -1,8 +1,14 @@
-import { useState, useEffect, useRef, useCallback } from 'react';
+import { useState, useEffect, useRef, useCallback, useMemo } from 'react';
 import { io, Socket } from 'socket.io-client';
-import type { WorldState, Agent, Structure, Entity, GameEvent, GodAction } from './types';
+import type { WorldState, Agent, Structure, Entity, GameEvent, GodAction, Blessing } from './types';
 
 const API_URL = import.meta.env.VITE_API_URL || 'http://localhost:3333';
+
+/** Extrai o nome do agente de uma mensagem de oração */
+function extractAgentName(message: string): string | null {
+  const m = message.match(/🙏\s*([^:]+):/);
+  return m ? m[1].trim() : null;
+}
 
 export default function App() {
   const [worldState, setWorldState] = useState<WorldState>({ current_tick: 0, weather: 'Sincronizando...' });
@@ -13,11 +19,12 @@ export default function App() {
   const [isChanging, setIsChanging] = useState(false);
   const [connected, setConnected] = useState(false);
   const [selectedAgent, setSelectedAgent] = useState<Agent | null>(null);
+  const [prayerMessage, setPrayerMessage] = useState('');
+  const [sendingBlessing, setSendingBlessing] = useState(false);
   const [assets, setAssets] = useState<Record<string, HTMLImageElement>>({});
   const canvasRef = useRef<HTMLCanvasElement>(null);
   const socketRef = useRef<Socket | null>(null);
 
-  // Carrega as imagens HD
   useEffect(() => {
     const names = ['tree', 'house', 'grass', 'water', 'deer', 'wolf'] as const;
     const files = ['/arvore.png', '/casa.png', '/grama.png', '/agua.png', '/cervo.png', '/lobo.png'];
@@ -36,7 +43,6 @@ export default function App() {
     ).then(() => setAssets(imgs));
   }, []);
 
-  // Socket.io em tempo real
   useEffect(() => {
     const socket = io(API_URL, { transports: ['websocket', 'polling'] });
     socketRef.current = socket;
@@ -64,12 +70,18 @@ export default function App() {
     };
   }, []);
 
+  const prayers = useMemo(
+    () => events.filter((e) => e.type === 'ORAÇÃO').slice(0, 20),
+    [events]
+  );
+
   const resetWorld = async () => {
     if (!window.confirm('⚠️ GERAR NOVA ILHA? A civilização recomeçará do zero.')) return;
     setIsChanging(true);
     try {
       await fetch(`${API_URL}/api/world/reset`, { method: 'POST' });
       setSelectedAgent(null);
+      setPrayerMessage('');
     } catch (err) {
       console.error('Erro ao resetar mundo:', err);
     } finally {
@@ -97,7 +109,33 @@ export default function App() {
     }
   }, []);
 
-  // Motor Gráfico Canvas
+  const sendDivineResponse = async (agentId: number, blessing?: Blessing, customMessage?: string) => {
+    setSendingBlessing(true);
+    try {
+      await fetch(`${API_URL}/api/agents/${agentId}/miracle`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          message: customMessage || prayerMessage || undefined,
+          blessing: blessing || undefined,
+        }),
+      });
+      setPrayerMessage('');
+    } catch (err) {
+      console.error('Erro ao enviar resposta divina:', err);
+    } finally {
+      setSendingBlessing(false);
+    }
+  };
+
+  const selectAgentFromPrayer = (message: string) => {
+    const name = extractAgentName(message);
+    if (!name) return;
+    const agent = agents.find((a) => a.name === name && a.hp > 0);
+    if (agent) setSelectedAgent(agent);
+  };
+
+  // Canvas
   useEffect(() => {
     const canvas = canvasRef.current;
     if (!canvas) return;
@@ -110,8 +148,6 @@ export default function App() {
     const scaleY = height / 100;
 
     ctx.clearRect(0, 0, width, height);
-
-    // Fundo da ilha
     ctx.fillStyle = '#0f172a';
     ctx.fillRect(0, 0, width, height);
     ctx.fillStyle = '#fef08a';
@@ -124,7 +160,6 @@ export default function App() {
     if (ctx.roundRect) ctx.roundRect(width * 0.05, height * 0.05, width * 0.9, height * 0.9, 40);
     ctx.clip();
 
-    // Grama
     if (assets.grass?.complete && assets.grass.naturalHeight !== 0) {
       const pattern = ctx.createPattern(assets.grass, 'repeat');
       if (pattern) {
@@ -136,7 +171,6 @@ export default function App() {
       ctx.fillRect(0, 0, width, height);
     }
 
-    // Overlay de clima
     if (worldState.weather?.toLowerCase().includes('chuva') || worldState.weather?.toLowerCase().includes('tempestade')) {
       ctx.fillStyle = 'rgba(30, 58, 138, 0.25)';
       ctx.fillRect(0, 0, width, height);
@@ -145,7 +179,6 @@ export default function App() {
       ctx.fillRect(0, 0, width, height);
     }
 
-    // Rio
     ctx.shadowColor = 'rgba(0,0,0,0.4)';
     ctx.shadowBlur = 10;
     ctx.lineCap = 'round';
@@ -162,7 +195,6 @@ export default function App() {
     ctx.moveTo(40 * scaleX, 0);
     ctx.bezierCurveTo(60 * scaleX, 30 * scaleY, 35 * scaleX, 60 * scaleY, 55 * scaleX, 100 * scaleY);
     ctx.stroke();
-
     ctx.lineWidth = 3 * scaleX;
     ctx.beginPath();
     ctx.moveTo(50 * scaleX, 45 * scaleY);
@@ -188,7 +220,6 @@ export default function App() {
       return false;
     };
 
-    // Entidades
     entities.forEach((e) => {
       const ex = e.x * scaleX;
       const ey = e.y * scaleY;
@@ -225,7 +256,6 @@ export default function App() {
       }
     });
 
-    // Estruturas
     structures.forEach((s) => {
       const sx = s.x * scaleX;
       const sy = s.y * scaleY;
@@ -249,12 +279,26 @@ export default function App() {
       ctx.shadowBlur = 6;
     });
 
-    // Agentes
     agents.forEach((a) => {
       if (a.hp <= 0) return;
       const ax = a.x * scaleX;
       const ay = a.y * scaleY;
       const isSelected = selectedAgent?.id === a.id;
+
+      // Halo dourado se orou recentemente
+      const recentPrayer = events.find(
+        (ev) =>
+          ev.type === 'ORAÇÃO' &&
+          ev.message.includes(a.name) &&
+          worldState.current_tick - ev.tick < 6
+      );
+      if (recentPrayer) {
+        ctx.strokeStyle = 'rgba(251, 191, 36, 0.7)';
+        ctx.lineWidth = 2;
+        ctx.beginPath();
+        ctx.arc(ax, ay - 2, 18, 0, Math.PI * 2);
+        ctx.stroke();
+      }
 
       if (isSelected) {
         ctx.strokeStyle = '#fbbf24';
@@ -275,6 +319,13 @@ export default function App() {
       ctx.fillRect(ax - 4, ay - 8, 8, 3);
 
       ctx.shadowBlur = 0;
+
+      if (recentPrayer) {
+        ctx.fillStyle = '#fef08a';
+        ctx.font = 'bold 14px Arial';
+        ctx.textAlign = 'center';
+        ctx.fillText('🙏', ax, ay - 28);
+      }
 
       const lastEvent = events[0];
       if (
@@ -328,19 +379,21 @@ export default function App() {
   const eventColor = (type: string) => {
     if (['CONFLITO', 'PUNIÇÃO', 'MORTE'].includes(type)) return '#ef4444';
     if (type === 'DIÁLOGO') return '#3b82f6';
-    if (['ALIANÇA', 'COMÉRCIO', 'MILAGRE', 'CONSTRUÇÃO', 'CAÇA'].includes(type)) return '#4ade80';
+    if (type === 'ORAÇÃO') return '#fbbf24';
+    if (type === 'RESPOSTA_DIVINA') return '#a78bfa';
+    if (['ALIANÇA', 'COMÉRCIO', 'MILAGRE', 'CONSTRUÇÃO', 'CAÇA', 'NASCIMENTO'].includes(type)) return '#4ade80';
     return '#888';
   };
 
   const btnBase: React.CSSProperties = {
-    padding: '0.55rem 1.1rem',
-    cursor: isChanging ? 'wait' : 'pointer',
+    padding: '0.45rem 0.9rem',
+    cursor: isChanging || sendingBlessing ? 'wait' : 'pointer',
     color: '#fff',
     border: '1px solid #444',
     borderRadius: '8px',
     fontWeight: 600,
-    fontSize: '0.9rem',
-    transition: 'opacity 0.15s',
+    fontSize: '0.85rem',
+    backgroundColor: '#222',
   };
 
   const aliveAgents = agents.filter((a) => a.hp > 0);
@@ -355,7 +408,6 @@ export default function App() {
         minHeight: '100vh',
       }}
     >
-      {/* Header */}
       <header
         style={{
           display: 'flex',
@@ -363,7 +415,7 @@ export default function App() {
           justifyContent: 'space-between',
           alignItems: 'center',
           gap: '1rem',
-          maxWidth: '1200px',
+          maxWidth: '1280px',
           margin: '0 auto 1.25rem',
           backgroundColor: '#111',
           padding: '1rem 1.25rem',
@@ -384,6 +436,9 @@ export default function App() {
               {connected ? '● Online' : '○ Offline'}
             </span>
             <span>👥 {aliveAgents.length} vivos</span>
+            {prayers.length > 0 && (
+              <span style={{ color: '#fbbf24' }}>🙏 {prayers.length} orações</span>
+            )}
           </div>
         </div>
 
@@ -396,7 +451,6 @@ export default function App() {
         </button>
       </header>
 
-      {/* Canvas */}
       <section style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', marginBottom: '1.5rem' }}>
         <canvas
           ref={canvasRef}
@@ -422,20 +476,65 @@ export default function App() {
           <span>
             <b style={{ color: '#4ade80' }}>Clique direito:</b> ✨ Milagre (Árvore)
           </span>
+          <span>
+            <b style={{ color: '#fbbf24' }}>🙏 no mapa:</b> agente orando
+          </span>
         </div>
       </section>
 
       <div
         style={{
-          display: 'flex',
-          gap: '1.5rem',
-          flexWrap: 'wrap',
-          maxWidth: '1200px',
+          display: 'grid',
+          gridTemplateColumns: 'repeat(auto-fit, minmax(300px, 1fr))',
+          gap: '1.25rem',
+          maxWidth: '1280px',
           margin: '0 auto',
         }}
       >
+        {/* Orações */}
+        <section>
+          <h2 style={{ margin: '0 0 0.75rem', fontSize: '1.15rem' }}>🙏 Orações ao Criador</h2>
+          <div
+            style={{
+              backgroundColor: '#111',
+              padding: '0.85rem',
+              borderRadius: '12px',
+              border: '1px solid #3b2f0a',
+              height: 280,
+              overflowY: 'auto',
+            }}
+          >
+            {prayers.length === 0 && (
+              <p style={{ color: '#666', textAlign: 'center', marginTop: '2rem', fontSize: '0.9rem' }}>
+                Nenhuma oração recente.\nAgentes em perigo oram sozinhos.
+              </p>
+            )}
+            {prayers.map((ev) => (
+              <div
+                key={ev.id}
+                onClick={() => selectAgentFromPrayer(ev.message)}
+                style={{
+                  borderLeft: '3px solid #fbbf24',
+                  paddingLeft: 10,
+                  paddingBottom: '0.65rem',
+                  marginBottom: '0.65rem',
+                  borderBottom: '1px solid #1a1a1a',
+                  cursor: 'pointer',
+                }}
+              >
+                <span style={{ fontSize: '0.72rem', color: '#a80', fontWeight: 600 }}>
+                  [Tick {ev.tick}]
+                </span>
+                <p style={{ margin: '0.15rem 0 0', fontSize: '0.88rem', color: '#fef9c3', lineHeight: 1.4 }}>
+                  {ev.message}
+                </p>
+              </div>
+            ))}
+          </div>
+        </section>
+
         {/* Livro das Eras */}
-        <section style={{ flex: '1 1 340px', minWidth: 280 }}>
+        <section>
           <h2 style={{ margin: '0 0 0.75rem', fontSize: '1.15rem' }}>📜 Livro das Eras</h2>
           <div
             style={{
@@ -443,7 +542,7 @@ export default function App() {
               padding: '0.85rem',
               borderRadius: '12px',
               border: '1px solid #2a2a2a',
-              height: 520,
+              height: 280,
               overflowY: 'auto',
             }}
           >
@@ -456,15 +555,15 @@ export default function App() {
                 style={{
                   borderLeft: `3px solid ${eventColor(ev.type)}`,
                   paddingLeft: 10,
-                  paddingBottom: '0.7rem',
-                  marginBottom: '0.7rem',
+                  paddingBottom: '0.65rem',
+                  marginBottom: '0.65rem',
                   borderBottom: '1px solid #1a1a1a',
                 }}
               >
-                <span style={{ fontSize: '0.75rem', color: '#888', fontWeight: 600 }}>
+                <span style={{ fontSize: '0.72rem', color: '#888', fontWeight: 600 }}>
                   [Tick {ev.tick}] {ev.type}
                 </span>
-                <p style={{ margin: '0.15rem 0 0', fontSize: '0.9rem', color: '#ddd', lineHeight: 1.4 }}>
+                <p style={{ margin: '0.15rem 0 0', fontSize: '0.88rem', color: '#ddd', lineHeight: 1.4 }}>
                   {ev.message}
                 </p>
               </div>
@@ -472,41 +571,108 @@ export default function App() {
           </div>
         </section>
 
-        {/* Cidadãos */}
-        <section style={{ flex: '2 1 520px' }}>
+        {/* Cidadãos + resposta divina */}
+        <section style={{ gridColumn: '1 / -1' }}>
           <h2 style={{ margin: '0 0 0.75rem', fontSize: '1.15rem' }}>
             🧠 Cidadãos Ativos ({aliveAgents.length})
           </h2>
 
-          {selectedAgent && (
+          {selectedAgent && selectedAgent.hp > 0 && (
             <div
               style={{
-                backgroundColor: '#1a1a1a',
-                border: '1px solid #fbbf24',
+                backgroundColor: '#1a1520',
+                border: '1px solid #a78bfa',
                 borderRadius: 12,
-                padding: '1rem',
+                padding: '1rem 1.15rem',
                 marginBottom: '1rem',
               }}
             >
-              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-                <h3 style={{ margin: 0, color: '#fbbf24' }}>{selectedAgent.name}</h3>
+              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: '0.5rem' }}>
+                <h3 style={{ margin: 0, color: '#c4b5fd' }}>
+                  ✨ Responder a {selectedAgent.name}
+                </h3>
                 <button
                   onClick={() => setSelectedAgent(null)}
-                  style={{ ...btnBase, backgroundColor: '#333', padding: '0.3rem 0.7rem', fontSize: '0.8rem' }}
+                  style={{ ...btnBase, padding: '0.3rem 0.7rem', fontSize: '0.8rem' }}
                 >
                   Fechar
                 </button>
               </div>
-              <p style={{ margin: '0.5rem 0', color: '#aaa', fontStyle: 'italic' }}>"{selectedAgent.action}"</p>
-              <div style={{ display: 'flex', flexWrap: 'wrap', gap: '0.75rem', fontSize: '0.9rem' }}>
+
+              <p style={{ margin: '0.5rem 0', color: '#aaa', fontStyle: 'italic', fontSize: '0.9rem' }}>
+                "{selectedAgent.action}"
+              </p>
+
+              <div style={{ display: 'flex', flexWrap: 'wrap', gap: '0.75rem', fontSize: '0.9rem', marginBottom: '0.85rem' }}>
                 <span>❤️ {selectedAgent.hp}/100</span>
                 <span style={{ color: '#3b82f6' }}>💧 {selectedAgent.water}</span>
                 <span style={{ color: '#eab308' }}>🍖 {selectedAgent.food}</span>
                 <span style={{ color: '#8b5cf6' }}>🪵 {selectedAgent.wood}</span>
                 <span style={{ color: '#94a3b8' }}>⛏️ {selectedAgent.iron}</span>
-                {selectedAgent.society !== 'Nenhuma' && (
-                  <span style={{ color: '#c084fc' }}>🏛️ {selectedAgent.society}</span>
-                )}
+              </div>
+
+              <textarea
+                value={prayerMessage}
+                onChange={(e) => setPrayerMessage(e.target.value)}
+                placeholder="Mensagem da voz divina (opcional)..."
+                rows={2}
+                style={{
+                  width: '100%',
+                  backgroundColor: '#0a0a0a',
+                  border: '1px solid #444',
+                  borderRadius: 8,
+                  color: '#eee',
+                  padding: '0.6rem',
+                  fontSize: '0.9rem',
+                  resize: 'vertical',
+                  marginBottom: '0.75rem',
+                  fontFamily: 'inherit',
+                }}
+              />
+
+              <div style={{ display: 'flex', flexWrap: 'wrap', gap: '0.5rem' }}>
+                <button
+                  disabled={sendingBlessing}
+                  onClick={() => sendDivineResponse(selectedAgent.id, 'heal')}
+                  style={{ ...btnBase, backgroundColor: '#14532d', borderColor: '#22c55e' }}
+                >
+                  ❤️ Curar
+                </button>
+                <button
+                  disabled={sendingBlessing}
+                  onClick={() => sendDivineResponse(selectedAgent.id, 'food')}
+                  style={{ ...btnBase, backgroundColor: '#713f12', borderColor: '#eab308' }}
+                >
+                  🍖 Comida
+                </button>
+                <button
+                  disabled={sendingBlessing}
+                  onClick={() => sendDivineResponse(selectedAgent.id, 'water')}
+                  style={{ ...btnBase, backgroundColor: '#1e3a5f', borderColor: '#3b82f6' }}
+                >
+                  💧 Água
+                </button>
+                <button
+                  disabled={sendingBlessing}
+                  onClick={() => sendDivineResponse(selectedAgent.id, 'resources')}
+                  style={{ ...btnBase, backgroundColor: '#3b0764', borderColor: '#a78bfa' }}
+                >
+                  🪵 Recursos
+                </button>
+                <button
+                  disabled={sendingBlessing}
+                  onClick={() => sendDivineResponse(selectedAgent.id, 'full')}
+                  style={{ ...btnBase, backgroundColor: '#4c1d95', borderColor: '#c4b5fd' }}
+                >
+                  🌟 Bênção Completa
+                </button>
+                <button
+                  disabled={sendingBlessing || !prayerMessage.trim()}
+                  onClick={() => sendDivineResponse(selectedAgent.id)}
+                  style={{ ...btnBase, backgroundColor: '#1e1b4b', borderColor: '#818cf8' }}
+                >
+                  📢 Só mensagem
+                </button>
               </div>
             </div>
           )}
@@ -514,7 +680,7 @@ export default function App() {
           <div
             style={{
               display: 'grid',
-              gridTemplateColumns: 'repeat(auto-fit, minmax(260px, 1fr))',
+              gridTemplateColumns: 'repeat(auto-fit, minmax(240px, 1fr))',
               gap: '0.85rem',
             }}
           >
@@ -523,13 +689,14 @@ export default function App() {
                 key={agent.id}
                 onClick={() => agent.hp > 0 && setSelectedAgent(agent)}
                 style={{
-                  backgroundColor: selectedAgent?.id === agent.id ? '#1f1a0a' : '#111',
+                  backgroundColor: selectedAgent?.id === agent.id ? '#1a1520' : '#111',
                   padding: '1rem',
                   borderRadius: 12,
-                  border: `1px solid ${selectedAgent?.id === agent.id ? '#fbbf24' : '#2a2a2a'}`,
+                  border: `1px solid ${
+                    selectedAgent?.id === agent.id ? '#a78bfa' : '#2a2a2a'
+                  }`,
                   opacity: agent.hp <= 0 ? 0.35 : 1,
                   cursor: agent.hp > 0 ? 'pointer' : 'default',
-                  transition: 'border-color 0.15s, background 0.15s',
                 }}
               >
                 <h3
@@ -539,6 +706,7 @@ export default function App() {
                     fontSize: '1rem',
                     display: 'flex',
                     justifyContent: 'space-between',
+                    gap: '0.5rem',
                   }}
                 >
                   <span>
@@ -553,22 +721,21 @@ export default function App() {
                 <div
                   style={{
                     display: 'flex',
-                    gap: '0.65rem',
-                    marginBottom: '0.45rem',
+                    gap: '0.55rem',
+                    marginBottom: '0.4rem',
                     backgroundColor: '#0a0a0a',
-                    padding: '0.4rem 0.55rem',
+                    padding: '0.35rem 0.5rem',
                     borderRadius: 6,
-                    fontSize: '0.8rem',
+                    fontSize: '0.78rem',
                     flexWrap: 'wrap',
                   }}
                 >
                   <span style={{ color: '#3b82f6' }}>💧 {agent.water}</span>
                   <span style={{ color: '#eab308' }}>🍖 {agent.food}</span>
                   <span style={{ color: '#8b5cf6' }}>🪵 {agent.wood}</span>
-                  <span style={{ color: '#94a3b8' }}>⛏️ {agent.iron}</span>
                   <span style={{ color: agent.hp < 30 ? '#ef4444' : '#4ade80' }}>❤️ {agent.hp}</span>
                 </div>
-                <p style={{ margin: 0, fontSize: '0.82rem', color: '#999', fontStyle: 'italic', minHeight: 36 }}>
+                <p style={{ margin: 0, fontSize: '0.8rem', color: '#999', fontStyle: 'italic', minHeight: 32 }}>
                   "{agent.action}"
                 </p>
               </div>
