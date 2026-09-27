@@ -1,14 +1,15 @@
 /**
- * GPU Instancing — 1 draw call por tipo de mesh.
+ * GPU Instancing + colisão espacial.
  *
- * Técnica: THREE.InstancedMesh + setMatrixAt / setColorAt.
- * Atualiza só matrices quando a lista de entidades muda (ou a cada frame
- * para bobbing leve da fauna).
+ * - InstancedMesh: raycast desligado (visual only)
+ * - SpatialHash: broadphase O(1) para picking/colisão
+ * - Proxy invisível único no chão usa o grid, não N raycasts
  */
-import { useRef, useMemo, useLayoutEffect } from 'react';
+import { useRef, useMemo, useLayoutEffect, useEffect } from 'react';
 import { useFrame } from '@react-three/fiber';
 import * as THREE from 'three';
 import type { Entity, Structure } from './types';
+import { SpatialHash, COLLISION_RADIUS, worldFromGrid, type SpatialItem } from './spatial';
 
 function to3D(x: number, y: number): { px: number; pz: number } {
   return { px: (x - 50) * 0.6, pz: (y - 50) * 0.6 };
@@ -24,6 +25,9 @@ const _p = new THREE.Vector3();
 const _q = new THREE.Quaternion();
 const _s = new THREE.Vector3();
 const _c = new THREE.Color();
+
+/** Desliga raycast nativo do Three (custo alto em InstancedMesh) */
+const NO_RAYCAST = () => {};
 
 function writeMatrix(
   mesh: THREE.InstancedMesh | null,
@@ -44,7 +48,47 @@ function writeMatrix(
   mesh.setMatrixAt(i, _m);
 }
 
-/* ───────── ÁRVORES (tronco + 2 copas) ───────── */
+function disableRaycast(mesh: THREE.InstancedMesh | null) {
+  if (mesh) mesh.raycast = NO_RAYCAST;
+}
+
+/* ───────── GRID GLOBAL (singleton de cena) ───────── */
+
+/** Hash compartilhado — reconstruído quando entities/structures mudam */
+export const worldSpatial = new SpatialHash(3.5);
+
+export function rebuildSpatial(entities: Entity[], structures: Structure[]) {
+  const items: SpatialItem[] = [];
+
+  for (let i = 0; i < entities.length; i++) {
+    const e = entities[i];
+    const { x, z } = worldFromGrid(e.x, e.y);
+    items.push({
+      id: e.id,
+      x,
+      z,
+      r: COLLISION_RADIUS[e.type] ?? 0.4,
+      kind: e.type,
+    });
+  }
+
+  for (let i = 0; i < structures.length; i++) {
+    const s = structures[i];
+    const { x, z } = worldFromGrid(s.x, s.y);
+    // ids negativos para não colidir com entity ids
+    items.push({
+      id: -(s.id ?? i + 1),
+      x,
+      z,
+      r: COLLISION_RADIUS.Casa,
+      kind: 'Casa',
+    });
+  }
+
+  worldSpatial.rebuild(items);
+}
+
+/* ───────── ÁRVORES ───────── */
 
 export function InstancedTrees({ entities }: { entities: Entity[] }) {
   const trunkRef = useRef<THREE.InstancedMesh>(null);
@@ -88,6 +132,7 @@ export function InstancedTrees({ entities }: { entities: Entity[] }) {
       if (ref.current) {
         ref.current.count = n;
         ref.current.instanceMatrix.needsUpdate = true;
+        disableRaycast(ref.current);
       }
     }
   }, [trees]);
@@ -145,6 +190,7 @@ export function InstancedOres({ entities }: { entities: Entity[] }) {
       if (ref.current) {
         ref.current.count = n;
         ref.current.instanceMatrix.needsUpdate = true;
+        disableRaycast(ref.current);
       }
     }
   }, [ores]);
@@ -157,12 +203,9 @@ export function InstancedOres({ entities }: { entities: Entity[] }) {
   );
 }
 
-/* ───────── FAUNA (1 mesh + instanceColor) ───────── */
+/* ───────── FAUNA ───────── */
 
-const ANIMAL_META: Record<
-  string,
-  { color: string; scale: number }
-> = {
+const ANIMAL_META: Record<string, { color: string; scale: number }> = {
   Cervo: { color: '#b45309', scale: 0.9 },
   Lobo: { color: '#475569', scale: 0.85 },
   Urso: { color: '#78350f', scale: 1.35 },
@@ -176,14 +219,10 @@ export function InstancedAnimals({ entities }: { entities: Entity[] }) {
   const headRef = useRef<THREE.InstancedMesh>(null);
 
   const animals = useMemo(
-    () =>
-      entities
-        .filter((e) => ANIMAL_META[e.type])
-        .slice(0, MAX_ANIMALS),
+    () => entities.filter((e) => ANIMAL_META[e.type]).slice(0, MAX_ANIMALS),
     [entities]
   );
 
-  // snapshot estável para bobbing (posições base)
   const bases = useMemo(
     () =>
       animals.map((a) => {
@@ -210,7 +249,6 @@ export function InstancedAnimals({ entities }: { entities: Entity[] }) {
     []
   );
 
-  // cores por instância
   useLayoutEffect(() => {
     const n = bases.length;
     for (let i = 0; i < n; i++) {
@@ -221,14 +259,15 @@ export function InstancedAnimals({ entities }: { entities: Entity[] }) {
     if (bodyRef.current) {
       if (bodyRef.current.instanceColor) bodyRef.current.instanceColor.needsUpdate = true;
       bodyRef.current.count = n;
+      disableRaycast(bodyRef.current);
     }
     if (headRef.current) {
       if (headRef.current.instanceColor) headRef.current.instanceColor.needsUpdate = true;
       headRef.current.count = n;
+      disableRaycast(headRef.current);
     }
   }, [bases]);
 
-  // bobbing leve no GPU matrix (1 update/frame para N animais)
   useFrame(({ clock }) => {
     const n = bases.length;
     if (n === 0) return;
@@ -246,21 +285,13 @@ export function InstancedAnimals({ entities }: { entities: Entity[] }) {
 
   return (
     <>
-      <instancedMesh
-        ref={bodyRef}
-        args={[geos.body, mats.body, MAX_ANIMALS]}
-        frustumCulled={false}
-      />
-      <instancedMesh
-        ref={headRef}
-        args={[geos.head, mats.head, MAX_ANIMALS]}
-        frustumCulled={false}
-      />
+      <instancedMesh ref={bodyRef} args={[geos.body, mats.body, MAX_ANIMALS]} frustumCulled={false} />
+      <instancedMesh ref={headRef} args={[geos.head, mats.head, MAX_ANIMALS]} frustumCulled={false} />
     </>
   );
 }
 
-/* ───────── CASAS (corpo + telhado) ───────── */
+/* ───────── CASAS ───────── */
 
 export function InstancedHouses({ structures }: { structures: Structure[] }) {
   const bodyRef = useRef<THREE.InstancedMesh>(null);
@@ -296,6 +327,7 @@ export function InstancedHouses({ structures }: { structures: Structure[] }) {
       if (ref.current) {
         ref.current.count = n;
         ref.current.instanceMatrix.needsUpdate = true;
+        disableRaycast(ref.current);
       }
     }
   }, [houses]);
@@ -308,14 +340,63 @@ export function InstancedHouses({ structures }: { structures: Structure[] }) {
   );
 }
 
-/** Agrupa toda a fauna/flora instanciada */
-export function InstancedEntities({ entities, structures }: { entities: Entity[]; structures: Structure[] }) {
+/**
+ * Debug opcional: esferas de colisão do spatial hash
+ * (não renderiza por padrão — só se debug=true)
+ */
+export function CollisionDebug({ debug = false }: { debug?: boolean }) {
+  const ref = useRef<THREE.InstancedMesh>(null);
+  const geo = useMemo(() => new THREE.SphereGeometry(1, 6, 4), []);
+  const mat = useMemo(
+    () =>
+      new THREE.MeshBasicMaterial({
+        color: '#22d3ee',
+        wireframe: true,
+        transparent: true,
+        opacity: 0.35,
+      }),
+    []
+  );
+
+  useFrame(() => {
+    if (!debug || !ref.current) return;
+    // lê items internos via query ampla no centro da ilha
+    const hits = worldSpatial.queryRadius(0, 0, 50);
+    const n = Math.min(hits.length, 200);
+    for (let i = 0; i < n; i++) {
+      const it = hits[i];
+      writeMatrix(ref.current, i, it.x, it.r, it.z, it.r, it.r, it.r);
+    }
+    ref.current.count = n;
+    ref.current.instanceMatrix.needsUpdate = true;
+    disableRaycast(ref.current);
+  });
+
+  if (!debug) return null;
+  return <instancedMesh ref={ref} args={[geo, mat, 200]} frustumCulled={false} />;
+}
+
+export function InstancedEntities({
+  entities,
+  structures,
+  debugCollision = false,
+}: {
+  entities: Entity[];
+  structures: Structure[];
+  debugCollision?: boolean;
+}) {
+  // reconstrói grid 1x por snapshot de estado
+  useEffect(() => {
+    rebuildSpatial(entities, structures);
+  }, [entities, structures]);
+
   return (
     <>
       <InstancedTrees entities={entities} />
       <InstancedOres entities={entities} />
       <InstancedAnimals entities={entities} />
       <InstancedHouses structures={structures} />
+      <CollisionDebug debug={debugCollision} />
     </>
   );
 }
