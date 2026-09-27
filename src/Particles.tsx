@@ -1,8 +1,5 @@
 /**
- * Sistema de partículas com física simples:
- * - posição / velocidade / aceleração (gravidade)
- * - vida (lifetime) + fade
- * - forças por elemento (lift, drag, radial burst)
+ * Partículas leves — contagens reduzidas para manter FPS alto.
  */
 import { useRef, useMemo, useEffect } from 'react';
 import { useFrame } from '@react-three/fiber';
@@ -23,7 +20,6 @@ interface Particle {
   life: number;
   maxLife: number;
   size: number;
-  /** 0–1 usado para cor */
   heat: number;
 }
 
@@ -33,35 +29,32 @@ interface EmitterConfig {
   colorEnd?: THREE.Color;
   gravity: number;
   drag: number;
-  /** impulso vertical inicial */
   lift: number;
   spread: number;
   speed: number;
   life: number;
   size: number;
   sizeEnd?: number;
-  /** força radial (explosão) */
   radial?: number;
-  continuous?: boolean;
 }
 
 const ELEMENT_CFG: Record<ElementType, EmitterConfig> = {
   FOGO: {
-    count: 180,
+    count: 70,
     color: new THREE.Color('#ff6b00'),
     colorEnd: new THREE.Color('#fbbf24'),
-    gravity: -1.2, // sobe (gravidade invertida parcial)
+    gravity: -1.2,
     drag: 0.98,
     lift: 4.5,
     spread: 2.2,
     speed: 3.5,
-    life: 1.4,
-    size: 0.35,
+    life: 1.0,
+    size: 0.32,
     sizeEnd: 0.05,
     radial: 1.5,
   },
   AGUA: {
-    count: 160,
+    count: 60,
     color: new THREE.Color('#38bdf8'),
     colorEnd: new THREE.Color('#e0f2fe'),
     gravity: 6,
@@ -69,13 +62,13 @@ const ELEMENT_CFG: Record<ElementType, EmitterConfig> = {
     lift: 2,
     spread: 3,
     speed: 2.5,
-    life: 1.6,
-    size: 0.22,
-    sizeEnd: 0.08,
+    life: 1.1,
+    size: 0.2,
+    sizeEnd: 0.06,
     radial: 2,
   },
   TERRA: {
-    count: 120,
+    count: 50,
     color: new THREE.Color('#a16207'),
     colorEnd: new THREE.Color('#78716c'),
     gravity: 12,
@@ -83,13 +76,13 @@ const ELEMENT_CFG: Record<ElementType, EmitterConfig> = {
     lift: 5,
     spread: 2.5,
     speed: 4,
-    life: 1.2,
-    size: 0.4,
-    sizeEnd: 0.15,
+    life: 0.9,
+    size: 0.35,
+    sizeEnd: 0.12,
     radial: 3.5,
   },
   AR: {
-    count: 200,
+    count: 80,
     color: new THREE.Color('#e2e8f0'),
     colorEnd: new THREE.Color('#94a3b8'),
     gravity: -0.3,
@@ -97,13 +90,13 @@ const ELEMENT_CFG: Record<ElementType, EmitterConfig> = {
     lift: 1,
     spread: 5,
     speed: 6,
-    life: 1.8,
-    size: 0.28,
+    life: 1.2,
+    size: 0.25,
     sizeEnd: 0.02,
     radial: 4,
   },
   VIDA: {
-    count: 140,
+    count: 55,
     color: new THREE.Color('#4ade80'),
     colorEnd: new THREE.Color('#bbf7d0'),
     gravity: -0.8,
@@ -111,18 +104,14 @@ const ELEMENT_CFG: Record<ElementType, EmitterConfig> = {
     lift: 2.5,
     spread: 2.8,
     speed: 2,
-    life: 2.2,
-    size: 0.25,
-    sizeEnd: 0.05,
+    life: 1.4,
+    size: 0.22,
+    sizeEnd: 0.04,
     radial: 1.2,
   },
 };
 
-function spawnBurst(
-  origin: THREE.Vector3,
-  cfg: EmitterConfig,
-  into: Particle[]
-): void {
+function spawnBurst(origin: THREE.Vector3, cfg: EmitterConfig, into: Particle[]): void {
   for (let i = 0; i < cfg.count; i++) {
     const theta = Math.random() * Math.PI * 2;
     const phi = Math.random() * Math.PI * 0.6;
@@ -143,7 +132,6 @@ function spawnBurst(
   }
 }
 
-/** Burst elementar ligado a lastCast */
 export function ElementalParticles({ divine }: { divine: DivineState | null }) {
   const pointsRef = useRef<THREE.Points>(null);
   const particles = useRef<Particle[]>([]);
@@ -153,7 +141,7 @@ export function ElementalParticles({ divine }: { divine: DivineState | null }) {
   const colorB = useRef(new THREE.Color('#fbbf24'));
 
   const { positions, colors, sizes, maxCount } = useMemo(() => {
-    const maxCount = 220;
+    const maxCount = 100;
     return {
       maxCount,
       positions: new Float32Array(maxCount * 3),
@@ -162,7 +150,6 @@ export function ElementalParticles({ divine }: { divine: DivineState | null }) {
     };
   }, []);
 
-  // Novo cast → respawn burst
   useEffect(() => {
     const lc = divine?.lastCast;
     if (!lc) return;
@@ -179,42 +166,30 @@ export function ElementalParticles({ divine }: { divine: DivineState | null }) {
 
   useFrame((_, dt) => {
     const list = particles.current;
+    if (list.length === 0) return;
     const cfg = cfgRef.current;
-    const dtClamped = Math.min(dt, 0.05);
+    const dtClamped = Math.min(dt, 0.033);
 
     for (let i = list.length - 1; i >= 0; i--) {
       const p = list[i];
-      // Física
-      p.vy -= cfg.gravity * dtClamped; // note: gravity positive = down in our convention when gravity>0
-      // Wait: we defined FOGO gravity as -1.2 meaning upward bias.
-      // Apply as acceleration on vy: p.vy += (-gravity) so positive gravity pulls down.
-      // Actually above line uses -= cfg.gravity, so positive gravity decreases vy (down if Y up). Good.
-      // Fix: I wrote p.vy -= cfg.gravity - for FOGO gravity=-1.2, -= (-1.2) adds lift. Good.
-
+      p.vy -= cfg.gravity * dtClamped;
       p.vx *= cfg.drag;
       p.vy *= cfg.drag;
       p.vz *= cfg.drag;
-
       p.x += p.vx * dtClamped;
       p.y += p.vy * dtClamped;
       p.z += p.vz * dtClamped;
-
-      // Colisão simples com o chão
       if (p.y < 0.05) {
         p.y = 0.05;
-        p.vy *= -0.25; // bounce amortecido
+        p.vy *= -0.25;
         p.vx *= 0.7;
         p.vz *= 0.7;
-        p.life -= dtClamped * 0.5; // morre mais rápido no chão
+        p.life -= dtClamped * 0.5;
       }
-
       p.life -= dtClamped;
-      if (p.life <= 0) {
-        list.splice(i, 1);
-      }
+      if (p.life <= 0) list.splice(i, 1);
     }
 
-    // Upload GPU buffers
     const pos = positions;
     const col = colors;
     const sz = sizes;
@@ -227,7 +202,6 @@ export function ElementalParticles({ divine }: { divine: DivineState | null }) {
         pos[i * 3 + 1] = p.y;
         pos[i * 3 + 2] = p.z;
         tmp.copy(colorA.current).lerp(colorB.current, t);
-        // fade out
         const alphaFade = Math.min(1, p.life * 2);
         col[i * 3] = tmp.r * alphaFade;
         col[i * 3 + 1] = tmp.g * alphaFade;
@@ -260,35 +234,27 @@ export function ElementalParticles({ divine }: { divine: DivineState | null }) {
         depthWrite={false}
         blending={THREE.AdditiveBlending}
         vertexColors
-        vertexShader={/* glsl */ `
-          attribute float size;
-          varying vec3 vColor;
-          void main() {
-            vColor = color;
-            vec4 mvPosition = modelViewMatrix * vec4(position, 1.0);
-            gl_PointSize = size * (180.0 / -mvPosition.z);
-            gl_Position = projectionMatrix * mvPosition;
-          }
-        `}
-        fragmentShader={/* glsl */ `
-          varying vec3 vColor;
-          void main() {
-            vec2 uv = gl_PointCoord - vec2(0.5);
-            float d = length(uv);
-            if (d > 0.5) discard;
-            float alpha = smoothstep(0.5, 0.1, d);
-            gl_FragColor = vec4(vColor, alpha);
-          }
-        `}
+        vertexShader={`attribute float size; varying vec3 vColor; void main() {
+          vColor = color;
+          vec4 mvPosition = modelViewMatrix * vec4(position, 1.0);
+          gl_PointSize = size * (160.0 / -mvPosition.z);
+          gl_Position = projectionMatrix * mvPosition;
+        }`}
+        fragmentShader={`varying vec3 vColor; void main() {
+          vec2 uv = gl_PointCoord - vec2(0.5);
+          float d = length(uv);
+          if (d > 0.5) discard;
+          float alpha = smoothstep(0.5, 0.12, d);
+          gl_FragColor = vec4(vColor, alpha);
+        }`}
       />
     </points>
   );
 }
 
-/** Chuva contínua com física de queda */
 export function RainParticles({ active, heavy }: { active: boolean; heavy?: boolean }) {
   const pointsRef = useRef<THREE.Points>(null);
-  const count = heavy ? 1200 : 600;
+  const count = heavy ? 280 : 140;
 
   const { positions, velocities } = useMemo(() => {
     const positions = new Float32Array(count * 3);
@@ -297,20 +263,19 @@ export function RainParticles({ active, heavy }: { active: boolean; heavy?: bool
       positions[i * 3] = (Math.random() - 0.5) * 70;
       positions[i * 3 + 1] = Math.random() * 25 + 5;
       positions[i * 3 + 2] = (Math.random() - 0.5) * 70;
-      velocities[i] = 12 + Math.random() * 10;
+      velocities[i] = 14 + Math.random() * 10;
     }
     return { positions, velocities };
   }, [count]);
 
   useFrame((_, dt) => {
     if (!active) return;
-    const dtClamped = Math.min(dt, 0.05);
+    const dtClamped = Math.min(dt, 0.033);
     for (let i = 0; i < count; i++) {
       positions[i * 3 + 1] -= velocities[i] * dtClamped;
-      // vento leve
-      positions[i * 3] += (heavy ? 2 : 0.8) * dtClamped;
+      positions[i * 3] += (heavy ? 2.5 : 1) * dtClamped;
       if (positions[i * 3 + 1] < 0) {
-        positions[i * 3 + 1] = 20 + Math.random() * 10;
+        positions[i * 3 + 1] = 18 + Math.random() * 10;
         positions[i * 3] = (Math.random() - 0.5) * 70;
         positions[i * 3 + 2] = (Math.random() - 0.5) * 70;
       }
@@ -328,9 +293,9 @@ export function RainParticles({ active, heavy }: { active: boolean; heavy?: bool
       </bufferGeometry>
       <pointsMaterial
         color={heavy ? '#7dd3fc' : '#bae6fd'}
-        size={heavy ? 0.12 : 0.08}
+        size={heavy ? 0.11 : 0.07}
         transparent
-        opacity={0.55}
+        opacity={0.5}
         depthWrite={false}
         sizeAttenuation
       />
@@ -338,13 +303,11 @@ export function RainParticles({ active, heavy }: { active: boolean; heavy?: bool
   );
 }
 
-/** Faíscas de raio — burst vertical rápido */
 export function LightningParticles({ origin, trigger }: { origin: [number, number, number] | null; trigger: number }) {
   const pointsRef = useRef<THREE.Points>(null);
   const particles = useRef<Particle[]>([]);
   const lastTrigger = useRef(-1);
-
-  const maxCount = 100;
+  const maxCount = 50;
   const positions = useMemo(() => new Float32Array(maxCount * 3), []);
   const colors = useMemo(() => new Float32Array(maxCount * 3), []);
 
@@ -352,7 +315,7 @@ export function LightningParticles({ origin, trigger }: { origin: [number, numbe
     if (!origin || trigger === lastTrigger.current) return;
     lastTrigger.current = trigger;
     particles.current = [];
-    for (let i = 0; i < 80; i++) {
+    for (let i = 0; i < 40; i++) {
       particles.current.push({
         x: origin[0] + (Math.random() - 0.5) * 1.5,
         y: origin[1] + Math.random() * 8,
@@ -360,9 +323,9 @@ export function LightningParticles({ origin, trigger }: { origin: [number, numbe
         vx: (Math.random() - 0.5) * 4,
         vy: -2 - Math.random() * 6,
         vz: (Math.random() - 0.5) * 4,
-        life: 0.4 + Math.random() * 0.4,
-        maxLife: 0.6,
-        size: 0.3,
+        life: 0.35 + Math.random() * 0.3,
+        maxLife: 0.5,
+        size: 0.28,
         heat: 1,
       });
     }
@@ -370,7 +333,8 @@ export function LightningParticles({ origin, trigger }: { origin: [number, numbe
 
   useFrame((_, dt) => {
     const list = particles.current;
-    const dtClamped = Math.min(dt, 0.05);
+    if (list.length === 0) return;
+    const dtClamped = Math.min(dt, 0.033);
     for (let i = list.length - 1; i >= 0; i--) {
       const p = list[i];
       p.vy -= 8 * dtClamped;
@@ -409,7 +373,7 @@ export function LightningParticles({ origin, trigger }: { origin: [number, numbe
       </bufferGeometry>
       <pointsMaterial
         vertexColors
-        size={0.35}
+        size={0.3}
         transparent
         depthWrite={false}
         blending={THREE.AdditiveBlending}
