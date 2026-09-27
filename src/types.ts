@@ -53,3 +53,5 @@ export interface GameState {
 }
 
 export type GodAction = 'RAIO' | 'MILAGRE';
+
+export type Blessing = 'heal' | 'food' | 'water' | 'resources' | 'full';
