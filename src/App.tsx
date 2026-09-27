@@ -1,26 +1,47 @@
 import { useState, useEffect, useRef, useCallback, useMemo } from 'react';
 import { io, Socket } from 'socket.io-client';
-import type { WorldState, Agent, Structure, Entity, GameEvent, GodAction, Blessing } from './types';
+import type {
+  WorldState,
+  Agent,
+  Structure,
+  Entity,
+  GameEvent,
+  GodAction,
+  Blessing,
+  DivineState,
+} from './types';
 
 const API_URL = import.meta.env.VITE_API_URL || 'http://localhost:3333';
 
-/** Extrai o nome do agente de uma mensagem de oração */
 function extractAgentName(message: string): string | null {
   const m = message.match(/🙏\s*([^:]+):/);
   return m ? m[1].trim() : null;
 }
 
+const BLESSING_TO_ACTION: Record<string, string> = {
+  heal: 'BLESS_HEAL',
+  food: 'BLESS_FOOD',
+  water: 'BLESS_WATER',
+  resources: 'BLESS_RESOURCES',
+  full: 'BLESS_FULL',
+};
+
 export default function App() {
-  const [worldState, setWorldState] = useState<WorldState>({ current_tick: 0, weather: 'Sincronizando...' });
+  const [worldState, setWorldState] = useState<WorldState>({
+    current_tick: 0,
+    weather: 'Sincronizando...',
+  });
   const [agents, setAgents] = useState<Agent[]>([]);
   const [structures, setStructures] = useState<Structure[]>([]);
   const [entities, setEntities] = useState<Entity[]>([]);
   const [events, setEvents] = useState<GameEvent[]>([]);
+  const [divine, setDivine] = useState<DivineState | null>(null);
   const [isChanging, setIsChanging] = useState(false);
   const [connected, setConnected] = useState(false);
   const [selectedAgent, setSelectedAgent] = useState<Agent | null>(null);
   const [prayerMessage, setPrayerMessage] = useState('');
   const [sendingBlessing, setSendingBlessing] = useState(false);
+  const [divineFeedback, setDivineFeedback] = useState<string | null>(null);
   const [assets, setAssets] = useState<Record<string, HTMLImageElement>>({});
   const canvasRef = useRef<HTMLCanvasElement>(null);
   const socketRef = useRef<Socket | null>(null);
@@ -29,7 +50,6 @@ export default function App() {
     const names = ['tree', 'house', 'grass', 'water', 'deer', 'wolf'] as const;
     const files = ['/arvore.png', '/casa.png', '/grama.png', '/agua.png', '/cervo.png', '/lobo.png'];
     const imgs: Record<string, HTMLImageElement> = {};
-
     Promise.all(
       files.map((src, i) => {
         const img = new Image();
@@ -46,34 +66,48 @@ export default function App() {
   useEffect(() => {
     const socket = io(API_URL, { transports: ['websocket', 'polling'] });
     socketRef.current = socket;
-
     socket.on('connect', () => setConnected(true));
     socket.on('disconnect', () => setConnected(false));
-
-    socket.on('gameState', (data: {
-      world: WorldState;
-      agents: Agent[];
-      structures: Structure[];
-      entities: Entity[];
-      events: GameEvent[];
-    }) => {
-      setWorldState(data.world ?? { current_tick: 0, weather: 'Desconhecido' });
-      setAgents(data.agents ?? []);
-      setStructures(data.structures ?? []);
-      setEntities(data.entities ?? []);
-      setEvents(data.events ?? []);
-    });
-
+    socket.on(
+      'gameState',
+      (data: {
+        world: WorldState;
+        agents: Agent[];
+        structures: Structure[];
+        entities: Entity[];
+        events: GameEvent[];
+        divine?: DivineState;
+      }) => {
+        setWorldState(data.world ?? { current_tick: 0, weather: 'Desconhecido' });
+        setAgents(data.agents ?? []);
+        setStructures(data.structures ?? []);
+        setEntities(data.entities ?? []);
+        setEvents(data.events ?? []);
+        if (data.divine) setDivine(data.divine);
+      }
+    );
     return () => {
       socket.off('gameState');
       socket.disconnect();
     };
   }, []);
 
-  const prayers = useMemo(
-    () => events.filter((e) => e.type === 'ORAÇÃO').slice(0, 20),
-    [events]
-  );
+  useEffect(() => {
+    if (!divineFeedback) return;
+    const t = setTimeout(() => setDivineFeedback(null), 2800);
+    return () => clearTimeout(t);
+  }, [divineFeedback]);
+
+  const prayers = useMemo(() => events.filter((e) => e.type === 'ORAÇÃO').slice(0, 20), [events]);
+
+  const canUse = (actionKey: string): { ok: boolean; reason?: string } => {
+    if (!divine) return { ok: true };
+    const cost = divine.costs[actionKey] ?? 0;
+    const cd = divine.cooldowns[actionKey] ?? 0;
+    if (cd > 0) return { ok: false, reason: `CD ${cd}t` };
+    if (divine.energy < cost) return { ok: false, reason: `⚡${cost}` };
+    return { ok: true };
+  };
 
   const resetWorld = async () => {
     if (!window.confirm('⚠️ GERAR NOVA ILHA? A civilização recomeçará do zero.')) return;
@@ -89,38 +123,75 @@ export default function App() {
     }
   };
 
-  const handleGodAction = useCallback(async (e: React.MouseEvent<HTMLCanvasElement>, actionType: GodAction) => {
-    e.preventDefault();
-    const canvas = canvasRef.current;
-    if (!canvas) return;
+  const handleGodAction = useCallback(
+    async (e: React.MouseEvent<HTMLCanvasElement>, actionType: GodAction) => {
+      e.preventDefault();
+      const canvas = canvasRef.current;
+      if (!canvas) return;
 
-    const rect = canvas.getBoundingClientRect();
-    const x = Math.max(0, Math.min(100, Math.round(((e.clientX - rect.left) / rect.width) * 100)));
-    const y = Math.max(0, Math.min(100, Math.round(((e.clientY - rect.top) / rect.height) * 100)));
+      const check = canUse(actionType);
+      if (!check.ok) {
+        setDivineFeedback(check.reason === `CD ${divine?.cooldowns[actionType]}t`
+          ? `${actionType} em cooldown`
+          : 'Energia divina insuficiente');
+        return;
+      }
 
-    try {
-      await fetch(`${API_URL}/api/world/god-action`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ action: actionType, x, y }),
-      });
-    } catch (error) {
-      console.error('Falha ao invocar poder divino:', error);
+      const rect = canvas.getBoundingClientRect();
+      const x = Math.max(0, Math.min(100, Math.round(((e.clientX - rect.left) / rect.width) * 100)));
+      const y = Math.max(0, Math.min(100, Math.round(((e.clientY - rect.top) / rect.height) * 100)));
+
+      try {
+        const res = await fetch(`${API_URL}/api/world/god-action`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ action: actionType, x, y }),
+        });
+        const data = await res.json();
+        if (!res.ok) {
+          setDivineFeedback(data.error || 'Intervenção bloqueada');
+          if (data.divine) setDivine(data.divine);
+          return;
+        }
+        if (data.divine) setDivine(data.divine);
+      } catch (error) {
+        console.error('Falha ao invocar poder divino:', error);
+      }
+    },
+    [divine]
+  );
+
+  const sendDivineResponse = async (agentId: number, blessing?: Blessing) => {
+    const actionKey = blessing ? BLESSING_TO_ACTION[blessing] : 'BLESS_MESSAGE';
+    const check = canUse(actionKey);
+    if (!check.ok) {
+      setDivineFeedback(
+        (divine?.cooldowns[actionKey] ?? 0) > 0
+          ? `Em cooldown (${divine!.cooldowns[actionKey]} ticks)`
+          : 'Energia divina insuficiente'
+      );
+      return;
     }
-  }, []);
 
-  const sendDivineResponse = async (agentId: number, blessing?: Blessing, customMessage?: string) => {
     setSendingBlessing(true);
     try {
-      await fetch(`${API_URL}/api/agents/${agentId}/miracle`, {
+      const res = await fetch(`${API_URL}/api/agents/${agentId}/miracle`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
-          message: customMessage || prayerMessage || undefined,
+          message: prayerMessage || undefined,
           blessing: blessing || undefined,
         }),
       });
+      const data = await res.json();
+      if (!res.ok) {
+        setDivineFeedback(data.error || 'Bênção bloqueada');
+        if (data.divine) setDivine(data.divine);
+        return;
+      }
+      if (data.divine) setDivine(data.divine);
       setPrayerMessage('');
+      setDivineFeedback(`✨ Bênção enviada (−${data.cost ?? '?'} energia)`);
     } catch (err) {
       console.error('Erro ao enviar resposta divina:', err);
     } finally {
@@ -135,7 +206,7 @@ export default function App() {
     if (agent) setSelectedAgent(agent);
   };
 
-  // Canvas
+  // Canvas (mesmo motor de antes)
   useEffect(() => {
     const canvas = canvasRef.current;
     if (!canvas) return;
@@ -171,7 +242,10 @@ export default function App() {
       ctx.fillRect(0, 0, width, height);
     }
 
-    if (worldState.weather?.toLowerCase().includes('chuva') || worldState.weather?.toLowerCase().includes('tempestade')) {
+    if (
+      worldState.weather?.toLowerCase().includes('chuva') ||
+      worldState.weather?.toLowerCase().includes('tempestade')
+    ) {
       ctx.fillStyle = 'rgba(30, 58, 138, 0.25)';
       ctx.fillRect(0, 0, width, height);
     } else if (worldState.weather?.toLowerCase().includes('nublado')) {
@@ -285,7 +359,6 @@ export default function App() {
       const ay = a.y * scaleY;
       const isSelected = selectedAgent?.id === a.id;
 
-      // Halo dourado se orou recentemente
       const recentPrayer = events.find(
         (ev) =>
           ev.type === 'ORAÇÃO' &&
@@ -327,27 +400,6 @@ export default function App() {
         ctx.fillText('🙏', ax, ay - 28);
       }
 
-      const lastEvent = events[0];
-      if (
-        lastEvent &&
-        lastEvent.type === 'DIÁLOGO' &&
-        lastEvent.message.includes(a.name) &&
-        worldState.current_tick - lastEvent.tick < 5
-      ) {
-        ctx.fillStyle = '#ffffff';
-        ctx.beginPath();
-        if (ctx.roundRect) ctx.roundRect(ax - 15, ay - 38, 30, 16, 5);
-        ctx.fill();
-        ctx.beginPath();
-        ctx.moveTo(ax - 5, ay - 22);
-        ctx.lineTo(ax, ay - 18);
-        ctx.lineTo(ax + 5, ay - 22);
-        ctx.fill();
-        ctx.fillStyle = '#000';
-        ctx.font = 'bold 12px Arial';
-        ctx.fillText('💬', ax, ay - 26);
-      }
-
       if (a.society && a.society !== 'Nenhuma') {
         ctx.font = 'bold 9px Arial';
         ctx.fillStyle = '#c084fc';
@@ -381,13 +433,13 @@ export default function App() {
     if (type === 'DIÁLOGO') return '#3b82f6';
     if (type === 'ORAÇÃO') return '#fbbf24';
     if (type === 'RESPOSTA_DIVINA') return '#a78bfa';
-    if (['ALIANÇA', 'COMÉRCIO', 'MILAGRE', 'CONSTRUÇÃO', 'CAÇA', 'NASCIMENTO'].includes(type)) return '#4ade80';
+    if (['ALIANÇA', 'COMÉRCIO', 'MILAGRE', 'CONSTRUÇÃO', 'CAÇA', 'NASCIMENTO'].includes(type))
+      return '#4ade80';
     return '#888';
   };
 
   const btnBase: React.CSSProperties = {
     padding: '0.45rem 0.9rem',
-    cursor: isChanging || sendingBlessing ? 'wait' : 'pointer',
     color: '#fff',
     border: '1px solid #444',
     borderRadius: '8px',
@@ -396,7 +448,23 @@ export default function App() {
     backgroundColor: '#222',
   };
 
+  const blessingBtn = (key: string, style: React.CSSProperties): React.CSSProperties => {
+    const check = canUse(key);
+    return {
+      ...btnBase,
+      ...style,
+      opacity: check.ok && !sendingBlessing ? 1 : 0.45,
+      cursor: check.ok && !sendingBlessing ? 'pointer' : 'not-allowed',
+    };
+  };
+
   const aliveAgents = agents.filter((a) => a.hp > 0);
+  const energyPct = divine ? (divine.energy / divine.maxEnergy) * 100 : 100;
+  const energyColor =
+    energyPct > 50 ? '#a78bfa' : energyPct > 25 ? '#fbbf24' : '#ef4444';
+
+  const raioOk = canUse('RAIO').ok;
+  const milagreOk = canUse('MILAGRE').ok;
 
   return (
     <div
@@ -423,12 +491,21 @@ export default function App() {
           border: '1px solid #2a2a2a',
         }}
       >
-        <div>
+        <div style={{ flex: 1, minWidth: 220 }}>
           <h1 style={{ margin: 0, color: '#fff', fontSize: '1.35rem', fontWeight: 700 }}>
             👁️ Painel do Criador{' '}
             <span style={{ color: '#4ade80', fontWeight: 500 }}>· Tick {worldState.current_tick}</span>
           </h1>
-          <div style={{ display: 'flex', gap: '1rem', marginTop: '0.35rem', fontSize: '0.85rem', color: '#aaa' }}>
+          <div
+            style={{
+              display: 'flex',
+              gap: '1rem',
+              marginTop: '0.35rem',
+              fontSize: '0.85rem',
+              color: '#aaa',
+              flexWrap: 'wrap',
+            }}
+          >
             <span>
               {weatherEmoji(worldState.weather)} {worldState.weather || '—'}
             </span>
@@ -436,20 +513,86 @@ export default function App() {
               {connected ? '● Online' : '○ Offline'}
             </span>
             <span>👥 {aliveAgents.length} vivos</span>
-            {prayers.length > 0 && (
-              <span style={{ color: '#fbbf24' }}>🙏 {prayers.length} orações</span>
-            )}
+            {prayers.length > 0 && <span style={{ color: '#fbbf24' }}>🙏 {prayers.length}</span>}
           </div>
+
+          {/* Barra de Energia Divina */}
+          {divine && (
+            <div style={{ marginTop: '0.65rem', maxWidth: 320 }}>
+              <div
+                style={{
+                  display: 'flex',
+                  justifyContent: 'space-between',
+                  fontSize: '0.75rem',
+                  color: '#a78bfa',
+                  marginBottom: 3,
+                }}
+              >
+                <span>⚡ Energia Divina</span>
+                <span>
+                  {divine.energy}/{divine.maxEnergy} (+{divine.regenPerTick}/tick)
+                </span>
+              </div>
+              <div
+                style={{
+                  height: 8,
+                  backgroundColor: '#1a1a2e',
+                  borderRadius: 4,
+                  overflow: 'hidden',
+                  border: '1px solid #333',
+                }}
+              >
+                <div
+                  style={{
+                    height: '100%',
+                    width: `${energyPct}%`,
+                    backgroundColor: energyColor,
+                    transition: 'width 0.3s ease',
+                    borderRadius: 4,
+                  }}
+                />
+              </div>
+              {(divine.cooldowns['RAIO'] || divine.cooldowns['MILAGRE']) && (
+                <div style={{ fontSize: '0.7rem', color: '#888', marginTop: 4 }}>
+                  {divine.cooldowns['RAIO'] ? `⚡ Raio CD: ${divine.cooldowns['RAIO']}t  ` : ''}
+                  {divine.cooldowns['MILAGRE'] ? `✨ Árvore CD: ${divine.cooldowns['MILAGRE']}t` : ''}
+                </div>
+              )}
+            </div>
+          )}
         </div>
 
         <button
           disabled={isChanging}
           onClick={resetWorld}
-          style={{ ...btnBase, backgroundColor: '#7f1d1d', borderColor: '#ef4444' }}
+          style={{
+            ...btnBase,
+            backgroundColor: '#7f1d1d',
+            borderColor: '#ef4444',
+            cursor: isChanging ? 'wait' : 'pointer',
+          }}
         >
           ☄️ Gerar Nova Ilha
         </button>
       </header>
+
+      {divineFeedback && (
+        <div
+          style={{
+            maxWidth: 1280,
+            margin: '0 auto 0.75rem',
+            padding: '0.6rem 1rem',
+            backgroundColor: '#1e1b4b',
+            border: '1px solid #6366f1',
+            borderRadius: 8,
+            color: '#c7d2fe',
+            fontSize: '0.9rem',
+            textAlign: 'center',
+          }}
+        >
+          {divineFeedback}
+        </div>
+      )}
 
       <section style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', marginBottom: '1.5rem' }}>
         <canvas
@@ -464,20 +607,35 @@ export default function App() {
             height: 'auto',
             backgroundColor: '#000',
             borderRadius: '16px',
-            border: '3px solid #1e293b',
+            border: `3px solid ${!raioOk && !milagreOk ? '#444' : '#1e293b'}`,
             boxShadow: '0 12px 40px rgba(0,0,0,0.7)',
-            cursor: 'crosshair',
+            cursor: raioOk || milagreOk ? 'crosshair' : 'not-allowed',
+            opacity: raioOk || milagreOk ? 1 : 0.85,
           }}
         />
-        <div style={{ display: 'flex', gap: '2rem', marginTop: '0.75rem', color: '#888', fontSize: '0.85rem' }}>
-          <span>
-            <b style={{ color: '#ef4444' }}>Clique esquerdo:</b> ⚡ Raio
+        <div
+          style={{
+            display: 'flex',
+            gap: '1.5rem',
+            marginTop: '0.75rem',
+            color: '#888',
+            fontSize: '0.85rem',
+            flexWrap: 'wrap',
+            justifyContent: 'center',
+          }}
+        >
+          <span style={{ opacity: raioOk ? 1 : 0.5 }}>
+            <b style={{ color: '#ef4444' }}>Esq:</b> ⚡ Raio
+            {divine?.costs?.RAIO != null && ` (−${divine.costs.RAIO})`}
+            {divine?.cooldowns?.RAIO ? ` · CD ${divine.cooldowns.RAIO}t` : ''}
+          </span>
+          <span style={{ opacity: milagreOk ? 1 : 0.5 }}>
+            <b style={{ color: '#4ade80' }}>Dir:</b> ✨ Árvore
+            {divine?.costs?.MILAGRE != null && ` (−${divine.costs.MILAGRE})`}
+            {divine?.cooldowns?.MILAGRE ? ` · CD ${divine.cooldowns.MILAGRE}t` : ''}
           </span>
           <span>
-            <b style={{ color: '#4ade80' }}>Clique direito:</b> ✨ Milagre (Árvore)
-          </span>
-          <span>
-            <b style={{ color: '#fbbf24' }}>🙏 no mapa:</b> agente orando
+            <b style={{ color: '#fbbf24' }}>🙏</b> agente orando
           </span>
         </div>
       </section>
@@ -491,7 +649,6 @@ export default function App() {
           margin: '0 auto',
         }}
       >
-        {/* Orações */}
         <section>
           <h2 style={{ margin: '0 0 0.75rem', fontSize: '1.15rem' }}>🙏 Orações ao Criador</h2>
           <div
@@ -506,7 +663,7 @@ export default function App() {
           >
             {prayers.length === 0 && (
               <p style={{ color: '#666', textAlign: 'center', marginTop: '2rem', fontSize: '0.9rem' }}>
-                Nenhuma oração recente.\nAgentes em perigo oram sozinhos.
+                Nenhuma oração recente. Agentes em perigo oram sozinhos.
               </p>
             )}
             {prayers.map((ev) => (
@@ -533,7 +690,6 @@ export default function App() {
           </div>
         </section>
 
-        {/* Livro das Eras */}
         <section>
           <h2 style={{ margin: '0 0 0.75rem', fontSize: '1.15rem' }}>📜 Livro das Eras</h2>
           <div
@@ -571,7 +727,6 @@ export default function App() {
           </div>
         </section>
 
-        {/* Cidadãos + resposta divina */}
         <section style={{ gridColumn: '1 / -1' }}>
           <h2 style={{ margin: '0 0 0.75rem', fontSize: '1.15rem' }}>
             🧠 Cidadãos Ativos ({aliveAgents.length})
@@ -587,13 +742,19 @@ export default function App() {
                 marginBottom: '1rem',
               }}
             >
-              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: '0.5rem' }}>
-                <h3 style={{ margin: 0, color: '#c4b5fd' }}>
-                  ✨ Responder a {selectedAgent.name}
-                </h3>
+              <div
+                style={{
+                  display: 'flex',
+                  justifyContent: 'space-between',
+                  alignItems: 'center',
+                  flexWrap: 'wrap',
+                  gap: '0.5rem',
+                }}
+              >
+                <h3 style={{ margin: 0, color: '#c4b5fd' }}>✨ Responder a {selectedAgent.name}</h3>
                 <button
                   onClick={() => setSelectedAgent(null)}
-                  style={{ ...btnBase, padding: '0.3rem 0.7rem', fontSize: '0.8rem' }}
+                  style={{ ...btnBase, padding: '0.3rem 0.7rem', fontSize: '0.8rem', cursor: 'pointer' }}
                 >
                   Fechar
                 </button>
@@ -603,7 +764,15 @@ export default function App() {
                 "{selectedAgent.action}"
               </p>
 
-              <div style={{ display: 'flex', flexWrap: 'wrap', gap: '0.75rem', fontSize: '0.9rem', marginBottom: '0.85rem' }}>
+              <div
+                style={{
+                  display: 'flex',
+                  flexWrap: 'wrap',
+                  gap: '0.75rem',
+                  fontSize: '0.9rem',
+                  marginBottom: '0.85rem',
+                }}
+              >
                 <span>❤️ {selectedAgent.hp}/100</span>
                 <span style={{ color: '#3b82f6' }}>💧 {selectedAgent.water}</span>
                 <span style={{ color: '#eab308' }}>🍖 {selectedAgent.food}</span>
@@ -631,47 +800,41 @@ export default function App() {
               />
 
               <div style={{ display: 'flex', flexWrap: 'wrap', gap: '0.5rem' }}>
+                {(
+                  [
+                    ['heal', 'BLESS_HEAL', '❤️ Curar', '#14532d', '#22c55e'],
+                    ['food', 'BLESS_FOOD', '🍖 Comida', '#713f12', '#eab308'],
+                    ['water', 'BLESS_WATER', '💧 Água', '#1e3a5f', '#3b82f6'],
+                    ['resources', 'BLESS_RESOURCES', '🪵 Recursos', '#3b0764', '#a78bfa'],
+                    ['full', 'BLESS_FULL', '🌟 Completa', '#4c1d95', '#c4b5fd'],
+                  ] as const
+                ).map(([bless, key, label, bg, border]) => {
+                  const check = canUse(key);
+                  const cost = divine?.costs[key];
+                  const cd = divine?.cooldowns[key];
+                  return (
+                    <button
+                      key={key}
+                      disabled={sendingBlessing || !check.ok}
+                      onClick={() => sendDivineResponse(selectedAgent.id, bless)}
+                      title={cd ? `Cooldownoldown: ${cd} ticks` : cost != null ? `Custo: ${cost} energia` : ''}
+                      style={blessingBtn(key, { backgroundColor: bg, borderColor: border })}
+                    >
+                      {label}
+                      {cd ? ` (${cd}t)` : cost != null ? ` −${cost}` : ''}
+                    </button>
+                  );
+                })}
                 <button
-                  disabled={sendingBlessing}
-                  onClick={() => sendDivineResponse(selectedAgent.id, 'heal')}
-                  style={{ ...btnBase, backgroundColor: '#14532d', borderColor: '#22c55e' }}
-                >
-                  ❤️ Curar
-                </button>
-                <button
-                  disabled={sendingBlessing}
-                  onClick={() => sendDivineResponse(selectedAgent.id, 'food')}
-                  style={{ ...btnBase, backgroundColor: '#713f12', borderColor: '#eab308' }}
-                >
-                  🍖 Comida
-                </button>
-                <button
-                  disabled={sendingBlessing}
-                  onClick={() => sendDivineResponse(selectedAgent.id, 'water')}
-                  style={{ ...btnBase, backgroundColor: '#1e3a5f', borderColor: '#3b82f6' }}
-                >
-                  💧 Água
-                </button>
-                <button
-                  disabled={sendingBlessing}
-                  onClick={() => sendDivineResponse(selectedAgent.id, 'resources')}
-                  style={{ ...btnBase, backgroundColor: '#3b0764', borderColor: '#a78bfa' }}
-                >
-                  🪵 Recursos
-                </button>
-                <button
-                  disabled={sendingBlessing}
-                  onClick={() => sendDivineResponse(selectedAgent.id, 'full')}
-                  style={{ ...btnBase, backgroundColor: '#4c1d95', borderColor: '#c4b5fd' }}
-                >
-                  🌟 Bênção Completa
-                </button>
-                <button
-                  disabled={sendingBlessing || !prayerMessage.trim()}
+                  disabled={sendingBlessing || !canUse('BLESS_MESSAGE').ok || !prayerMessage.trim()}
                   onClick={() => sendDivineResponse(selectedAgent.id)}
-                  style={{ ...btnBase, backgroundColor: '#1e1b4b', borderColor: '#818cf8' }}
+                  style={blessingBtn('BLESS_MESSAGE', {
+                    backgroundColor: '#1e1b4b',
+                    borderColor: '#818cf8',
+                  })}
                 >
                   📢 Só mensagem
+                  {divine?.costs?.BLESS_MESSAGE != null ? ` −${divine.costs.BLESS_MESSAGE}` : ''}
                 </button>
               </div>
             </div>
@@ -735,7 +898,15 @@ export default function App() {
                   <span style={{ color: '#8b5cf6' }}>🪵 {agent.wood}</span>
                   <span style={{ color: agent.hp < 30 ? '#ef4444' : '#4ade80' }}>❤️ {agent.hp}</span>
                 </div>
-                <p style={{ margin: 0, fontSize: '0.8rem', color: '#999', fontStyle: 'italic', minHeight: 32 }}>
+                <p
+                  style={{
+                    margin: 0,
+                    fontSize: '0.8rem',
+                    color: '#999',
+                    fontStyle: 'italic',
+                    minHeight: 32,
+                  }}
+                >
                   "{agent.action}"
                 </p>
               </div>
