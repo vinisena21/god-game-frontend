@@ -1,12 +1,13 @@
 {
   "name": "god-game-frontend",
   "private": true,
-  "version": "0.0.0",
+  "version": "0.1.0",
   "type": "module",
   "scripts": {
-    "start": "tsx src/server.ts",
-    "dev": "tsx watch src/server.ts",
-    "dev:loop": "tsx watch src/loop.ts"
+    "dev": "vite",
+    "build": "tsc -b && vite build",
+    "preview": "vite preview",
+    "lint": "eslint ."
   },
   "dependencies": {
     "react": "^19.2.8",
