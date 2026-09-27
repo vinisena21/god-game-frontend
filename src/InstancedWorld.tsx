@@ -1,9 +1,5 @@
 /**
- * GPU Instancing + colisão espacial.
- *
- * - InstancedMesh: raycast desligado (visual only)
- * - SpatialHash: broadphase O(1) para picking/colisão
- * - Proxy invisível único no chão usa o grid, não N raycasts
+ * GPU Instancing + colisão espacial + fauna expandida.
  */
 import { useRef, useMemo, useLayoutEffect, useEffect } from 'react';
 import { useFrame } from '@react-three/fiber';
@@ -17,7 +13,7 @@ function to3D(x: number, y: number): { px: number; pz: number } {
 
 const MAX_TREES = 120;
 const MAX_ORES = 40;
-const MAX_ANIMALS = 80;
+const MAX_ANIMALS = 120;
 const MAX_HOUSES = 40;
 
 const _m = new THREE.Matrix4();
@@ -26,7 +22,6 @@ const _q = new THREE.Quaternion();
 const _s = new THREE.Vector3();
 const _c = new THREE.Color();
 
-/** Desliga raycast nativo do Three (custo alto em InstancedMesh) */
 const NO_RAYCAST = () => {};
 
 function writeMatrix(
@@ -52,14 +47,10 @@ function disableRaycast(mesh: THREE.InstancedMesh | null) {
   if (mesh) mesh.raycast = NO_RAYCAST;
 }
 
-/* ───────── GRID GLOBAL (singleton de cena) ───────── */
-
-/** Hash compartilhado — reconstruído quando entities/structures mudam */
 export const worldSpatial = new SpatialHash(3.5);
 
 export function rebuildSpatial(entities: Entity[], structures: Structure[]) {
   const items: SpatialItem[] = [];
-
   for (let i = 0; i < entities.length; i++) {
     const e = entities[i];
     const { x, z } = worldFromGrid(e.x, e.y);
@@ -71,11 +62,9 @@ export function rebuildSpatial(entities: Entity[], structures: Structure[]) {
       kind: e.type,
     });
   }
-
   for (let i = 0; i < structures.length; i++) {
     const s = structures[i];
     const { x, z } = worldFromGrid(s.x, s.y);
-    // ids negativos para não colidir com entity ids
     items.push({
       id: -(s.id ?? i + 1),
       x,
@@ -84,22 +73,17 @@ export function rebuildSpatial(entities: Entity[], structures: Structure[]) {
       kind: 'Casa',
     });
   }
-
   worldSpatial.rebuild(items);
 }
-
-/* ───────── ÁRVORES ───────── */
 
 export function InstancedTrees({ entities }: { entities: Entity[] }) {
   const trunkRef = useRef<THREE.InstancedMesh>(null);
   const crownRef = useRef<THREE.InstancedMesh>(null);
   const topRef = useRef<THREE.InstancedMesh>(null);
-
   const trees = useMemo(
     () => entities.filter((e) => e.type === 'Árvore Anciã').slice(0, MAX_TREES),
     [entities]
   );
-
   const geos = useMemo(
     () => ({
       trunk: new THREE.CylinderGeometry(0.12, 0.18, 1, 5),
@@ -108,7 +92,6 @@ export function InstancedTrees({ entities }: { entities: Entity[] }) {
     }),
     []
   );
-
   const mats = useMemo(
     () => ({
       trunk: new THREE.MeshStandardMaterial({ color: '#5c3a1e', roughness: 0.95 }),
@@ -117,7 +100,6 @@ export function InstancedTrees({ entities }: { entities: Entity[] }) {
     }),
     []
   );
-
   useLayoutEffect(() => {
     const n = trees.length;
     for (let i = 0; i < n; i++) {
@@ -136,7 +118,6 @@ export function InstancedTrees({ entities }: { entities: Entity[] }) {
       }
     }
   }, [trees]);
-
   return (
     <>
       <instancedMesh ref={trunkRef} args={[geos.trunk, mats.trunk, MAX_TREES]} frustumCulled={false} />
@@ -146,17 +127,13 @@ export function InstancedTrees({ entities }: { entities: Entity[] }) {
   );
 }
 
-/* ───────── MINÉRIO ───────── */
-
 export function InstancedOres({ entities }: { entities: Entity[] }) {
   const rockRef = useRef<THREE.InstancedMesh>(null);
   const gemRef = useRef<THREE.InstancedMesh>(null);
-
   const ores = useMemo(
     () => entities.filter((e) => e.type === 'Jazida de Ouro').slice(0, MAX_ORES),
     [entities]
   );
-
   const geos = useMemo(
     () => ({
       rock: new THREE.DodecahedronGeometry(0.55, 0),
@@ -164,7 +141,6 @@ export function InstancedOres({ entities }: { entities: Entity[] }) {
     }),
     []
   );
-
   const mats = useMemo(
     () => ({
       rock: new THREE.MeshStandardMaterial({ color: '#78716c', roughness: 0.6, metalness: 0.4 }),
@@ -177,7 +153,6 @@ export function InstancedOres({ entities }: { entities: Entity[] }) {
     }),
     []
   );
-
   useLayoutEffect(() => {
     const n = ores.length;
     for (let i = 0; i < n; i++) {
@@ -194,7 +169,6 @@ export function InstancedOres({ entities }: { entities: Entity[] }) {
       }
     }
   }, [ores]);
-
   return (
     <>
       <instancedMesh ref={rockRef} args={[geos.rock, mats.rock, MAX_ORES]} frustumCulled={false} />
@@ -203,15 +177,18 @@ export function InstancedOres({ entities }: { entities: Entity[] }) {
   );
 }
 
-/* ───────── FAUNA ───────── */
-
-const ANIMAL_META: Record<string, { color: string; scale: number }> = {
+const ANIMAL_META: Record<string, { color: string; scale: number; fly?: boolean }> = {
   Cervo: { color: '#b45309', scale: 0.9 },
   Lobo: { color: '#475569', scale: 0.85 },
   Urso: { color: '#78350f', scale: 1.35 },
   Coelho: { color: '#e7e5e4', scale: 0.45 },
   Javali: { color: '#44403c', scale: 0.95 },
   Raposa: { color: '#ea580c', scale: 0.7 },
+  Cabra: { color: '#d6d3d1', scale: 0.75 },
+  Alce: { color: '#92400e', scale: 1.25 },
+  Águia: { color: '#78716c', scale: 0.55, fly: true },
+  Serpente: { color: '#4d7c0f', scale: 0.5 },
+  Goblin: { color: '#3f6212', scale: 0.8 },
 };
 
 export function InstancedAnimals({ entities }: { entities: Entity[] }) {
@@ -228,7 +205,14 @@ export function InstancedAnimals({ entities }: { entities: Entity[] }) {
       animals.map((a) => {
         const { px, pz } = to3D(a.x, a.y);
         const meta = ANIMAL_META[a.type];
-        return { px, pz, scale: meta.scale, color: meta.color, seed: a.x + a.y * 0.17 };
+        return {
+          px,
+          pz,
+          scale: meta.scale,
+          color: meta.color,
+          seed: a.x + a.y * 0.17,
+          fly: !!meta.fly,
+        };
       }),
     [animals]
   );
@@ -275,9 +259,10 @@ export function InstancedAnimals({ entities }: { entities: Entity[] }) {
     for (let i = 0; i < n; i++) {
       const b = bases[i];
       const bob = Math.sin(t * 3 + b.seed) * 0.04;
+      const flyY = b.fly ? 1.8 + Math.sin(t * 2 + b.seed) * 0.35 : 0;
       const s = b.scale;
-      writeMatrix(bodyRef.current, i, b.px, 0.35 * s + bob, b.pz, s, s, s);
-      writeMatrix(headRef.current, i, b.px + 0.28 * s, 0.6 * s + bob, b.pz, s, s, s);
+      writeMatrix(bodyRef.current, i, b.px, 0.35 * s + bob + flyY, b.pz, s, s, s);
+      writeMatrix(headRef.current, i, b.px + 0.28 * s, 0.6 * s + bob + flyY, b.pz, s, s, s);
     }
     if (bodyRef.current) bodyRef.current.instanceMatrix.needsUpdate = true;
     if (headRef.current) headRef.current.instanceMatrix.needsUpdate = true;
@@ -291,14 +276,10 @@ export function InstancedAnimals({ entities }: { entities: Entity[] }) {
   );
 }
 
-/* ───────── CASAS ───────── */
-
 export function InstancedHouses({ structures }: { structures: Structure[] }) {
   const bodyRef = useRef<THREE.InstancedMesh>(null);
   const roofRef = useRef<THREE.InstancedMesh>(null);
-
   const houses = useMemo(() => structures.slice(0, MAX_HOUSES), [structures]);
-
   const geos = useMemo(
     () => ({
       body: new THREE.BoxGeometry(1.4, 1.1, 1.4),
@@ -306,7 +287,6 @@ export function InstancedHouses({ structures }: { structures: Structure[] }) {
     }),
     []
   );
-
   const mats = useMemo(
     () => ({
       body: new THREE.MeshStandardMaterial({ color: '#a16207', roughness: 0.9 }),
@@ -314,7 +294,6 @@ export function InstancedHouses({ structures }: { structures: Structure[] }) {
     }),
     []
   );
-
   useLayoutEffect(() => {
     const n = houses.length;
     for (let i = 0; i < n; i++) {
@@ -331,7 +310,6 @@ export function InstancedHouses({ structures }: { structures: Structure[] }) {
       }
     }
   }, [houses]);
-
   return (
     <>
       <instancedMesh ref={bodyRef} args={[geos.body, mats.body, MAX_HOUSES]} frustumCulled={false} />
@@ -340,10 +318,6 @@ export function InstancedHouses({ structures }: { structures: Structure[] }) {
   );
 }
 
-/**
- * Debug opcional: esferas de colisão do spatial hash
- * (não renderiza por padrão — só se debug=true)
- */
 export function CollisionDebug({ debug = false }: { debug?: boolean }) {
   const ref = useRef<THREE.InstancedMesh>(null);
   const geo = useMemo(() => new THREE.SphereGeometry(1, 6, 4), []);
@@ -357,10 +331,8 @@ export function CollisionDebug({ debug = false }: { debug?: boolean }) {
       }),
     []
   );
-
   useFrame(() => {
     if (!debug || !ref.current) return;
-    // lê items internos via query ampla no centro da ilha
     const hits = worldSpatial.queryRadius(0, 0, 50);
     const n = Math.min(hits.length, 200);
     for (let i = 0; i < n; i++) {
@@ -371,7 +343,6 @@ export function CollisionDebug({ debug = false }: { debug?: boolean }) {
     ref.current.instanceMatrix.needsUpdate = true;
     disableRaycast(ref.current);
   });
-
   if (!debug) return null;
   return <instancedMesh ref={ref} args={[geo, mat, 200]} frustumCulled={false} />;
 }
@@ -385,7 +356,6 @@ export function InstancedEntities({
   structures: Structure[];
   debugCollision?: boolean;
 }) {
-  // reconstrói grid 1x por snapshot de estado
   useEffect(() => {
     rebuildSpatial(entities, structures);
   }, [entities, structures]);
