@@ -17,18 +17,18 @@ function from3D(px: number, pz: number): { x: number; y: number } {
 }
 
 function Island() {
-  const geo = useMemo(() => new THREE.CircleGeometry(38, 64), []);
+  const geo = useMemo(() => new THREE.CircleGeometry(38, 48), []);
   return (
     <group>
-      <mesh rotation={[-Math.PI / 2, 0, 0]} position={[0, -0.4, 0]} receiveShadow>
+      <mesh rotation={[-Math.PI / 2, 0, 0]} position={[0, -0.4, 0]}>
         <planeGeometry args={[200, 200]} />
         <meshStandardMaterial color="#0c4a6e" roughness={0.3} metalness={0.2} />
       </mesh>
-      <mesh rotation={[-Math.PI / 2, 0, 0]} position={[0, 0, 0]} receiveShadow geometry={geo}>
+      <mesh rotation={[-Math.PI / 2, 0, 0]} position={[0, 0, 0]} geometry={geo}>
         <meshStandardMaterial color="#4d7c0f" roughness={0.9} />
       </mesh>
       <mesh rotation={[-Math.PI / 2, 0, 0]} position={[0, 0.02, 0]}>
-        <ringGeometry args={[32, 38, 64]} />
+        <ringGeometry args={[32, 38, 48]} />
         <meshStandardMaterial color="#ca8a04" roughness={1} />
       </mesh>
       <mesh position={[0, 0.05, 0]} rotation={[-Math.PI / 2, 0, 0.15]}>
@@ -50,7 +50,7 @@ function ClickPlane({ onGroundClick }: { onGroundClick: (x: number, y: number) =
   );
   return (
     <mesh rotation={[-Math.PI / 2, 0, 0]} position={[0, 0.08, 0]} onClick={handle}>
-      <circleGeometry args={[38, 64]} />
+      <circleGeometry args={[38, 48]} />
       <meshBasicMaterial transparent opacity={0} />
     </mesh>
   );
@@ -61,16 +61,16 @@ function Tree3D({ x, y }: { x: number; y: number }) {
   const h = 1.8 + ((x * 7 + y * 3) % 10) * 0.12;
   return (
     <group position={[px, 0, pz]}>
-      <mesh position={[0, h * 0.35, 0]} castShadow>
-        <cylinderGeometry args={[0.12, 0.18, h * 0.7, 6]} />
+      <mesh position={[0, h * 0.35, 0]}>
+        <cylinderGeometry args={[0.12, 0.18, h * 0.7, 5]} />
         <meshStandardMaterial color="#5c3a1e" roughness={0.95} />
       </mesh>
-      <mesh position={[0, h * 0.85, 0]} castShadow>
-        <coneGeometry args={[0.9, h * 0.9, 7]} />
+      <mesh position={[0, h * 0.85, 0]}>
+        <coneGeometry args={[0.9, h * 0.9, 6]} />
         <meshStandardMaterial color="#166534" roughness={0.8} />
       </mesh>
-      <mesh position={[0, h * 1.25, 0]} castShadow>
-        <coneGeometry args={[0.6, h * 0.55, 7]} />
+      <mesh position={[0, h * 1.25, 0]}>
+        <coneGeometry args={[0.6, h * 0.55, 6]} />
         <meshStandardMaterial color="#15803d" roughness={0.8} />
       </mesh>
     </group>
@@ -81,7 +81,7 @@ function Ore3D({ x, y }: { x: number; y: number }) {
   const [px, , pz] = to3D(x, y);
   return (
     <group position={[px, 0.2, pz]}>
-      <mesh castShadow>
+      <mesh>
         <dodecahedronGeometry args={[0.55, 0]} />
         <meshStandardMaterial color="#78716c" roughness={0.6} metalness={0.4} />
       </mesh>
@@ -94,21 +94,9 @@ function Ore3D({ x, y }: { x: number; y: number }) {
 }
 
 function AnimalBody({
-  x,
-  y,
-  bodyColor,
-  scale = 1,
-  ears = false,
-  horns = false,
-  tall = false,
+  x, y, bodyColor, scale = 1, ears = false, horns = false, tall = false,
 }: {
-  x: number;
-  y: number;
-  bodyColor: string;
-  scale?: number;
-  ears?: boolean;
-  horns?: boolean;
-  tall?: boolean;
+  x: number; y: number; bodyColor: string; scale?: number; ears?: boolean; horns?: boolean; tall?: boolean;
 }) {
   const [px, , pz] = to3D(x, y);
   const ref = useRef<THREE.Group>(null);
@@ -118,12 +106,12 @@ function AnimalBody({
   const bh = tall ? 0.55 : 0.35;
   return (
     <group ref={ref} position={[px, 0, pz]} scale={scale}>
-      <mesh position={[0, bh, 0]} castShadow>
-        <capsuleGeometry args={[0.25, 0.35, 4, 8]} />
+      <mesh position={[0, bh, 0]}>
+        <capsuleGeometry args={[0.25, 0.35, 3, 6]} />
         <meshStandardMaterial color={bodyColor} roughness={0.85} />
       </mesh>
-      <mesh position={[0.28, bh + 0.25, 0]} castShadow>
-        <sphereGeometry args={[0.2, 8, 8]} />
+      <mesh position={[0.28, bh + 0.25, 0]}>
+        <sphereGeometry args={[0.2, 6, 6]} />
         <meshStandardMaterial color={bodyColor} roughness={0.85} />
       </mesh>
       {ears && (
@@ -151,8 +139,8 @@ function AnimalBody({
         </>
       )}
       {[[-0.12, -0.15], [-0.12, 0.15], [0.12, -0.15], [0.12, 0.15]].map(([lx, lz], i) => (
-        <mesh key={i} position={[lx, 0.12, lz]} castShadow>
-          <cylinderGeometry args={[0.04, 0.04, 0.25, 5]} />
+        <mesh key={i} position={[lx, 0.12, lz]}>
+          <cylinderGeometry args={[0.04, 0.04, 0.25, 4]} />
           <meshStandardMaterial color={bodyColor} />
         </mesh>
       ))}
@@ -162,22 +150,14 @@ function AnimalBody({
 
 function EntityMesh({ entity }: { entity: Entity }) {
   switch (entity.type) {
-    case 'Árvore Anciã':
-      return <Tree3D x={entity.x} y={entity.y} />;
-    case 'Jazida de Ouro':
-      return <Ore3D x={entity.x} y={entity.y} />;
-    case 'Cervo':
-      return <AnimalBody x={entity.x} y={entity.y} bodyColor="#b45309" horns scale={0.9} />;
-    case 'Lobo':
-      return <AnimalBody x={entity.x} y={entity.y} bodyColor="#475569" ears scale={0.85} />;
-    case 'Urso':
-      return <AnimalBody x={entity.x} y={entity.y} bodyColor="#78350f" scale={1.35} />;
-    case 'Coelho':
-      return <AnimalBody x={entity.x} y={entity.y} bodyColor="#e7e5e4" ears scale={0.45} />;
-    case 'Javali':
-      return <AnimalBody x={entity.x} y={entity.y} bodyColor="#44403c" scale={0.95} />;
-    case 'Raposa':
-      return <AnimalBody x={entity.x} y={entity.y} bodyColor="#ea580c" ears scale={0.7} />;
+    case 'Árvore Anciã': return <Tree3D x={entity.x} y={entity.y} />;
+    case 'Jazida de Ouro': return <Ore3D x={entity.x} y={entity.y} />;
+    case 'Cervo': return <AnimalBody x={entity.x} y={entity.y} bodyColor="#b45309" horns scale={0.9} />;
+    case 'Lobo': return <AnimalBody x={entity.x} y={entity.y} bodyColor="#475569" ears scale={0.85} />;
+    case 'Urso': return <AnimalBody x={entity.x} y={entity.y} bodyColor="#78350f" scale={1.35} />;
+    case 'Coelho': return <AnimalBody x={entity.x} y={entity.y} bodyColor="#e7e5e4" ears scale={0.45} />;
+    case 'Javali': return <AnimalBody x={entity.x} y={entity.y} bodyColor="#44403c" scale={0.95} />;
+    case 'Raposa': return <AnimalBody x={entity.x} y={entity.y} bodyColor="#ea580c" ears scale={0.7} />;
     default:
       return (
         <mesh position={to3D(entity.x, entity.y)}>
@@ -192,11 +172,11 @@ function House3D({ structure }: { structure: Structure }) {
   const [px, , pz] = to3D(structure.x, structure.y);
   return (
     <group position={[px, 0, pz]}>
-      <mesh position={[0, 0.55, 0]} castShadow>
+      <mesh position={[0, 0.55, 0]}>
         <boxGeometry args={[1.4, 1.1, 1.4]} />
         <meshStandardMaterial color="#a16207" roughness={0.9} />
       </mesh>
-      <mesh position={[0, 1.35, 0]} rotation={[0, Math.PI / 4, 0]} castShadow>
+      <mesh position={[0, 1.35, 0]} rotation={[0, Math.PI / 4, 0]}>
         <coneGeometry args={[1.2, 0.9, 4]} />
         <meshStandardMaterial color="#7f1d1d" roughness={0.85} />
       </mesh>
@@ -222,20 +202,20 @@ function Agent3D({ agent, selected }: { agent: Agent; selected: boolean }) {
     <group ref={ref} position={[px, 0, pz]}>
       {selected && (
         <mesh rotation={[-Math.PI / 2, 0, 0]} position={[0, 0.05, 0]}>
-          <ringGeometry args={[0.55, 0.7, 24]} />
+          <ringGeometry args={[0.55, 0.7, 16]} />
           <meshBasicMaterial color="#fbbf24" transparent opacity={0.8} />
         </mesh>
       )}
-      <mesh position={[0, 0.55, 0]} castShadow>
-        <capsuleGeometry args={[0.22, 0.4, 4, 8]} />
+      <mesh position={[0, 0.55, 0]}>
+        <capsuleGeometry args={[0.22, 0.4, 3, 6]} />
         <meshStandardMaterial color={bodyColor} roughness={0.7} />
       </mesh>
-      <mesh position={[0, 1.15, 0]} castShadow>
-        <sphereGeometry args={[0.22, 10, 10]} />
+      <mesh position={[0, 1.15, 0]}>
+        <sphereGeometry args={[0.22, 8, 8]} />
         <meshStandardMaterial color="#fde68a" roughness={0.6} />
       </mesh>
       <mesh position={[0, 1.35, 0]}>
-        <cylinderGeometry args={[0.18, 0.22, 0.12, 8]} />
+        <cylinderGeometry args={[0.18, 0.22, 0.12, 6]} />
         <meshStandardMaterial color="#0ea5e9" />
       </mesh>
       <mesh position={[0, 1.7, 0]}>
@@ -263,24 +243,15 @@ function ElementalFX({ divine }: { divine: DivineState | null }) {
   if (!lc) return null;
   const [px, , pz] = to3D(lc.x, lc.y);
   const colors: Record<string, string> = {
-    FOGO: '#ef4444',
-    AGUA: '#3b82f6',
-    TERRA: '#a16207',
-    AR: '#94a3b8',
-    VIDA: '#22c55e',
+    FOGO: '#ef4444', AGUA: '#3b82f6', TERRA: '#a16207', AR: '#94a3b8', VIDA: '#22c55e',
   };
   const r = (lc.radius || 8) * 0.6;
   return (
     <>
       <Float speed={2} floatIntensity={0.3}>
         <mesh position={[px, 0.3, pz]} rotation={[-Math.PI / 2, 0, 0]}>
-          <ringGeometry args={[r * 0.7, r, 32]} />
-          <meshBasicMaterial
-            color={colors[lc.element] || '#fff'}
-            transparent
-            opacity={0.35}
-            side={THREE.DoubleSide}
-          />
+          <ringGeometry args={[r * 0.7, r, 24]} />
+          <meshBasicMaterial color={colors[lc.element] || '#fff'} transparent opacity={0.35} side={THREE.DoubleSide} />
         </mesh>
       </Float>
       <ElementalParticles divine={divine} />
@@ -300,23 +271,16 @@ function WeatherFX({ weather }: { weather: string }) {
 
   return (
     <>
-      <Sky sunPosition={sunPos} turbidity={heavy ? 12 : 4} rayleigh={raining ? 1 : 2} />
+      <Sky sunPosition={sunPos} turbidity={heavy ? 10 : 3} rayleigh={raining ? 1 : 2} />
       {(w.includes('nublado') || raining) && (
         <>
-          <Cloud position={[-10, 12, -5]} speed={0.2} opacity={0.6} segments={20} />
-          <Cloud position={[8, 14, 4]} speed={0.15} opacity={0.5} segments={16} />
-          <Cloud position={[0, 13, 10]} speed={0.25} opacity={0.55} segments={18} />
+          <Cloud position={[-10, 12, -5]} speed={0.2} opacity={0.5} segments={12} />
+          <Cloud position={[8, 14, 4]} speed={0.15} opacity={0.4} segments={10} />
         </>
       )}
       <RainParticles active={raining} heavy={heavy} />
-      <ambientLight intensity={heavy ? 0.25 : 0.55} />
-      <directionalLight
-        castShadow
-        position={sunPos}
-        intensity={heavy ? 0.4 : 1.2}
-        shadow-mapSize-width={1024}
-        shadow-mapSize-height={1024}
-      />
+      <ambientLight intensity={heavy ? 0.35 : 0.65} />
+      <directionalLight position={sunPos} intensity={heavy ? 0.5 : 1.1} />
     </>
   );
 }
@@ -341,7 +305,6 @@ function Scene(props: World3DProps) {
       <WeatherFX weather={weather} />
       <Island />
       <ClickPlane onGroundClick={onGroundClick} />
-
       {entities.map((e) => (
         <EntityMesh key={`e-${e.id}`} entity={e} />
       ))}
@@ -361,7 +324,6 @@ function Scene(props: World3DProps) {
             <Agent3D agent={a} selected={selectedAgentId === a.id} />
           </group>
         ))}
-
       <ElementalFX divine={divine} />
       <OrbitControls
         makeDefault
@@ -369,6 +331,8 @@ function Scene(props: World3DProps) {
         minDistance={15}
         maxDistance={70}
         target={[0, 0, 0]}
+        enableDamping
+        dampingFactor={0.08}
       />
     </>
   );
@@ -389,11 +353,19 @@ export default function World3D(props: World3DProps) {
       }}
     >
       <Canvas
-        shadows
-        camera={{ position: [25, 22, 25], fov: 45 }}
-        gl={{ antialias: true }}
+        dpr={[1, 1.5]}
+        frameloop="always"
+        camera={{ position: [25, 22, 25], fov: 45, near: 0.5, far: 200 }}
+        gl={{
+          antialias: false,
+          powerPreference: 'high-performance',
+          alpha: false,
+          stencil: false,
+          depth: true,
+        }}
         style={{ width: '100%', height: '100%', cursor: 'crosshair' }}
       >
+        <color attach="background" args={['#0f172a']} />
         <Scene {...props} />
       </Canvas>
     </div>
