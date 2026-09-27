@@ -1,10 +1,15 @@
 /**
- * Partículas leves — contagens reduzidas para manter FPS alto.
+ * Partículas com shaders WebGL otimizados.
+ * - ShaderMaterial criado 1x (useMemo)
+ * - drawRange só nas partículas vivas
+ * - sem THREE.Color por frame
+ * - physics early-out + compactação in-place
  */
 import { useRef, useMemo, useEffect } from 'react';
 import { useFrame } from '@react-three/fiber';
 import * as THREE from 'three';
 import type { DivineState, ElementType } from './types';
+import { PARTICLE_VERT, PARTICLE_FRAG, RAIN_VERT, RAIN_FRAG } from './shaders';
 
 function to3D(x: number, y: number): THREE.Vector3 {
   return new THREE.Vector3((x - 50) * 0.6, 0.2, (y - 50) * 0.6);
@@ -20,7 +25,6 @@ interface Particle {
   life: number;
   maxLife: number;
   size: number;
-  heat: number;
 }
 
 interface EmitterConfig {
@@ -127,9 +131,21 @@ function spawnBurst(origin: THREE.Vector3, cfg: EmitterConfig, into: Particle[])
       life: cfg.life * (0.6 + Math.random() * 0.5),
       maxLife: cfg.life,
       size: cfg.size * (0.7 + Math.random() * 0.6),
-      heat: Math.random(),
     });
   }
+}
+
+function createParticleMaterial(): THREE.ShaderMaterial {
+  return new THREE.ShaderMaterial({
+    transparent: true,
+    depthWrite: false,
+    depthTest: true,
+    blending: THREE.AdditiveBlending,
+    vertexColors: true,
+    uniforms: {},
+    vertexShader: PARTICLE_VERT,
+    fragmentShader: PARTICLE_FRAG,
+  });
 }
 
 export function ElementalParticles({ divine }: { divine: DivineState | null }) {
@@ -137,8 +153,10 @@ export function ElementalParticles({ divine }: { divine: DivineState | null }) {
   const particles = useRef<Particle[]>([]);
   const lastKey = useRef<string>('');
   const cfgRef = useRef<EmitterConfig>(ELEMENT_CFG.FOGO);
-  const colorA = useRef(new THREE.Color('#ff6b00'));
-  const colorB = useRef(new THREE.Color('#fbbf24'));
+  const colorA = useRef({ r: 1, g: 0.42, b: 0 });
+  const colorB = useRef({ r: 0.98, g: 0.75, b: 0.14 });
+
+  const material = useMemo(() => createParticleMaterial(), []);
 
   const { positions, colors, sizes, maxCount } = useMemo(() => {
     const maxCount = 100;
@@ -150,27 +168,41 @@ export function ElementalParticles({ divine }: { divine: DivineState | null }) {
     };
   }, []);
 
+  useEffect(() => () => material.dispose(), [material]);
+
   useEffect(() => {
     const lc = divine?.lastCast;
     if (!lc) return;
     const key = `${lc.element}-${lc.x}-${lc.y}-${lc.tick}`;
     if (key === lastKey.current) return;
     lastKey.current = key;
+
     const cfg = ELEMENT_CFG[lc.element] || ELEMENT_CFG.FOGO;
     cfgRef.current = cfg;
-    colorA.current = cfg.color.clone();
-    colorB.current = (cfg.colorEnd || cfg.color).clone();
+    colorA.current = { r: cfg.color.r, g: cfg.color.g, b: cfg.color.b };
+    const end = cfg.colorEnd || cfg.color;
+    colorB.current = { r: end.r, g: end.g, b: end.b };
+
     particles.current = [];
     spawnBurst(to3D(lc.x, lc.y), cfg, particles.current);
   }, [divine?.lastCast]);
 
   useFrame((_, dt) => {
     const list = particles.current;
-    if (list.length === 0) return;
+    if (list.length === 0) {
+      const geo = pointsRef.current?.geometry;
+      if (geo && geo.drawRange.count !== 0) geo.setDrawRange(0, 0);
+      return;
+    }
+
     const cfg = cfgRef.current;
     const dtClamped = Math.min(dt, 0.033);
+    const ca = colorA.current;
+    const cb = colorB.current;
+    const sizeEnd = cfg.sizeEnd ?? cfg.size * 0.2;
 
-    for (let i = list.length - 1; i >= 0; i--) {
+    let write = 0;
+    for (let i = 0; i < list.length; i++) {
       const p = list[i];
       p.vy -= cfg.gravity * dtClamped;
       p.vx *= cfg.drag;
@@ -179,6 +211,7 @@ export function ElementalParticles({ divine }: { divine: DivineState | null }) {
       p.x += p.vx * dtClamped;
       p.y += p.vy * dtClamped;
       p.z += p.vz * dtClamped;
+
       if (p.y < 0.05) {
         p.y = 0.05;
         p.vy *= -0.25;
@@ -186,32 +219,28 @@ export function ElementalParticles({ divine }: { divine: DivineState | null }) {
         p.vz *= 0.7;
         p.life -= dtClamped * 0.5;
       }
-      p.life -= dtClamped;
-      if (p.life <= 0) list.splice(i, 1);
-    }
 
-    const pos = positions;
-    const col = colors;
-    const sz = sizes;
-    const tmp = new THREE.Color();
-    for (let i = 0; i < maxCount; i++) {
-      if (i < list.length) {
-        const p = list[i];
-        const t = 1 - p.life / p.maxLife;
-        pos[i * 3] = p.x;
-        pos[i * 3 + 1] = p.y;
-        pos[i * 3 + 2] = p.z;
-        tmp.copy(colorA.current).lerp(colorB.current, t);
-        const alphaFade = Math.min(1, p.life * 2);
-        col[i * 3] = tmp.r * alphaFade;
-        col[i * 3 + 1] = tmp.g * alphaFade;
-        col[i * 3 + 2] = tmp.b * alphaFade;
-        const sizeEnd = cfg.sizeEnd ?? cfg.size * 0.2;
-        sz[i] = THREE.MathUtils.lerp(p.size, sizeEnd, t);
-      } else {
-        pos[i * 3 + 1] = -999;
-        sz[i] = 0;
-      }
+      p.life -= dtClamped;
+      if (p.life > 0) list[write++] = p;
+    }
+    list.length = write;
+
+    const n = Math.min(write, maxCount);
+    for (let i = 0; i < n; i++) {
+      const p = list[i];
+      const t = 1 - p.life / p.maxLife;
+      const inv = 1 - t;
+      const fade = p.life * 2 > 1 ? 1 : p.life * 2;
+
+      positions[i * 3] = p.x;
+      positions[i * 3 + 1] = p.y;
+      positions[i * 3 + 2] = p.z;
+
+      colors[i * 3] = (ca.r * inv + cb.r * t) * fade;
+      colors[i * 3 + 1] = (ca.g * inv + cb.g * t) * fade;
+      colors[i * 3 + 2] = (ca.b * inv + cb.b * t) * fade;
+
+      sizes[i] = p.size * inv + sizeEnd * t;
     }
 
     const geo = pointsRef.current?.geometry;
@@ -219,35 +248,17 @@ export function ElementalParticles({ divine }: { divine: DivineState | null }) {
       geo.attributes.position.needsUpdate = true;
       geo.attributes.color.needsUpdate = true;
       geo.attributes.size.needsUpdate = true;
+      geo.setDrawRange(0, n);
     }
   });
 
   return (
-    <points ref={pointsRef} frustumCulled={false}>
+    <points ref={pointsRef} frustumCulled={false} material={material}>
       <bufferGeometry>
         <bufferAttribute attach="attributes-position" args={[positions, 3]} />
         <bufferAttribute attach="attributes-color" args={[colors, 3]} />
         <bufferAttribute attach="attributes-size" args={[sizes, 1]} />
       </bufferGeometry>
-      <shaderMaterial
-        transparent
-        depthWrite={false}
-        blending={THREE.AdditiveBlending}
-        vertexColors
-        vertexShader={`attribute float size; varying vec3 vColor; void main() {
-          vColor = color;
-          vec4 mvPosition = modelViewMatrix * vec4(position, 1.0);
-          gl_PointSize = size * (160.0 / -mvPosition.z);
-          gl_Position = projectionMatrix * mvPosition;
-        }`}
-        fragmentShader={`varying vec3 vColor; void main() {
-          vec2 uv = gl_PointCoord - vec2(0.5);
-          float d = length(uv);
-          if (d > 0.5) discard;
-          float alpha = smoothstep(0.5, 0.12, d);
-          gl_FragColor = vec4(vColor, alpha);
-        }`}
-      />
     </points>
   );
 }
@@ -256,24 +267,47 @@ export function RainParticles({ active, heavy }: { active: boolean; heavy?: bool
   const pointsRef = useRef<THREE.Points>(null);
   const count = heavy ? 280 : 140;
 
-  const { positions, velocities } = useMemo(() => {
+  const material = useMemo(() => {
+    return new THREE.ShaderMaterial({
+      transparent: true,
+      depthWrite: false,
+      depthTest: true,
+      blending: THREE.AdditiveBlending,
+      uniforms: {
+        uSize: { value: heavy ? 0.14 : 0.09 },
+        uColor: { value: new THREE.Color(heavy ? '#7dd3fc' : '#bae6fd') },
+        uOpacity: { value: heavy ? 0.55 : 0.4 },
+      },
+      vertexShader: RAIN_VERT,
+      fragmentShader: RAIN_FRAG,
+    });
+  }, [heavy]);
+
+  useEffect(() => () => material.dispose(), [material]);
+
+  const positions = useMemo(() => {
     const positions = new Float32Array(count * 3);
-    const velocities = new Float32Array(count);
     for (let i = 0; i < count; i++) {
       positions[i * 3] = (Math.random() - 0.5) * 70;
       positions[i * 3 + 1] = Math.random() * 25 + 5;
       positions[i * 3 + 2] = (Math.random() - 0.5) * 70;
-      velocities[i] = 14 + Math.random() * 10;
     }
-    return { positions, velocities };
+    return positions;
+  }, [count]);
+
+  const velocities = useMemo(() => {
+    const v = new Float32Array(count);
+    for (let i = 0; i < count; i++) v[i] = 14 + Math.random() * 10;
+    return v;
   }, [count]);
 
   useFrame((_, dt) => {
     if (!active) return;
     const dtClamped = Math.min(dt, 0.033);
+    const wind = heavy ? 2.5 : 1;
     for (let i = 0; i < count; i++) {
       positions[i * 3 + 1] -= velocities[i] * dtClamped;
-      positions[i * 3] += (heavy ? 2.5 : 1) * dtClamped;
+      positions[i * 3] += wind * dtClamped;
       if (positions[i * 3 + 1] < 0) {
         positions[i * 3 + 1] = 18 + Math.random() * 10;
         positions[i * 3] = (Math.random() - 0.5) * 70;
@@ -287,18 +321,10 @@ export function RainParticles({ active, heavy }: { active: boolean; heavy?: bool
   if (!active) return null;
 
   return (
-    <points ref={pointsRef} frustumCulled={false}>
+    <points ref={pointsRef} frustumCulled={false} material={material}>
       <bufferGeometry>
         <bufferAttribute attach="attributes-position" args={[positions, 3]} />
       </bufferGeometry>
-      <pointsMaterial
-        color={heavy ? '#7dd3fc' : '#bae6fd'}
-        size={heavy ? 0.11 : 0.07}
-        transparent
-        opacity={0.5}
-        depthWrite={false}
-        sizeAttenuation
-      />
     </points>
   );
 }
@@ -308,8 +334,13 @@ export function LightningParticles({ origin, trigger }: { origin: [number, numbe
   const particles = useRef<Particle[]>([]);
   const lastTrigger = useRef(-1);
   const maxCount = 50;
+
+  const material = useMemo(() => createParticleMaterial(), []);
+  useEffect(() => () => material.dispose(), [material]);
+
   const positions = useMemo(() => new Float32Array(maxCount * 3), []);
   const colors = useMemo(() => new Float32Array(maxCount * 3), []);
+  const sizes = useMemo(() => new Float32Array(maxCount), []);
 
   useEffect(() => {
     if (!origin || trigger === lastTrigger.current) return;
@@ -326,59 +357,58 @@ export function LightningParticles({ origin, trigger }: { origin: [number, numbe
         life: 0.35 + Math.random() * 0.3,
         maxLife: 0.5,
         size: 0.28,
-        heat: 1,
       });
     }
   }, [origin, trigger]);
 
   useFrame((_, dt) => {
     const list = particles.current;
-    if (list.length === 0) return;
+    if (list.length === 0) {
+      pointsRef.current?.geometry.setDrawRange(0, 0);
+      return;
+    }
     const dtClamped = Math.min(dt, 0.033);
-    for (let i = list.length - 1; i >= 0; i--) {
+    let write = 0;
+    for (let i = 0; i < list.length; i++) {
       const p = list[i];
       p.vy -= 8 * dtClamped;
       p.x += p.vx * dtClamped;
       p.y += p.vy * dtClamped;
       p.z += p.vz * dtClamped;
       p.life -= dtClamped;
-      if (p.life <= 0) list.splice(i, 1);
+      if (p.life > 0) list[write++] = p;
     }
-    for (let i = 0; i < maxCount; i++) {
-      if (i < list.length) {
-        const p = list[i];
-        positions[i * 3] = p.x;
-        positions[i * 3 + 1] = p.y;
-        positions[i * 3 + 2] = p.z;
-        const a = Math.min(1, p.life * 3);
-        colors[i * 3] = 0.7 * a;
-        colors[i * 3 + 1] = 0.85 * a;
-        colors[i * 3 + 2] = 1.0 * a;
-      } else {
-        positions[i * 3 + 1] = -999;
-      }
+    list.length = write;
+
+    const n = Math.min(write, maxCount);
+    for (let i = 0; i < n; i++) {
+      const p = list[i];
+      const a = p.life * 3 > 1 ? 1 : p.life * 3;
+      positions[i * 3] = p.x;
+      positions[i * 3 + 1] = p.y;
+      positions[i * 3 + 2] = p.z;
+      colors[i * 3] = 0.7 * a;
+      colors[i * 3 + 1] = 0.85 * a;
+      colors[i * 3 + 2] = 1.0 * a;
+      sizes[i] = p.size;
     }
+
     const geo = pointsRef.current?.geometry;
     if (geo) {
       geo.attributes.position.needsUpdate = true;
       geo.attributes.color.needsUpdate = true;
+      geo.attributes.size.needsUpdate = true;
+      geo.setDrawRange(0, n);
     }
   });
 
   return (
-    <points ref={pointsRef} frustumCulled={false}>
+    <points ref={pointsRef} frustumCulled={false} material={material}>
       <bufferGeometry>
         <bufferAttribute attach="attributes-position" args={[positions, 3]} />
         <bufferAttribute attach="attributes-color" args={[colors, 3]} />
+        <bufferAttribute attach="attributes-size" args={[sizes, 1]} />
       </bufferGeometry>
-      <pointsMaterial
-        vertexColors
-        size={0.3}
-        transparent
-        depthWrite={false}
-        blending={THREE.AdditiveBlending}
-        sizeAttenuation
-      />
     </points>
   );
 }
