@@ -1,75 +1,42 @@
-# React + TypeScript + Vite
+# God Game — Frontend (Painel do Criador)
 
-This template provides a minimal setup to get React working in Vite with HMR and some ESLint rules.
+Interface em tempo real do **God Game**, um simulador de civilização onde você é o deus.
 
-Currently, two official plugins are available:
+## Stack
 
-- [@vitejs/plugin-react](https://github.com/vitejs/vite-plugin-react/blob/main/packages/plugin-react) uses [Oxc](https://oxc.rs)
-- [@vitejs/plugin-react-swc](https://github.com/vitejs/vite-plugin-react/blob/main/packages/plugin-react-swc) uses [SWC](https://swc.rs/)
+- React 19 + TypeScript + Vite
+- Socket.io-client (estado ao vivo)
+- Canvas 2D para o mapa
 
-## React Compiler
+## Como rodar
 
-The React Compiler is not enabled on this template because of its impact on dev & build performances. To add it, see [this documentation](https://react.dev/learn/react-compiler/installation).
-
-## Expanding the ESLint configuration
-
-If you are developing a production application, we recommend updating the configuration to enable type-aware lint rules:
-
-```js
-export default defineConfig([
-  globalIgnores(['dist']),
-  {
-    files: ['**/*.{ts,tsx}'],
-    extends: [
-      // Other configs...
-
-      // Remove tseslint.configs.recommended and replace with this
-      tseslint.configs.recommendedTypeChecked,
-      // Alternatively, use this for stricter rules
-      tseslint.configs.strictTypeChecked,
-      // Optionally, add this for stylistic rules
-      tseslint.configs.stylisticTypeChecked,
-
-      // Other configs...
-    ],
-    languageOptions: {
-      parserOptions: {
-        project: ['./tsconfig.node.json', './tsconfig.app.json'],
-        tsconfigRootDir: import.meta.dirname,
-      },
-      // other options...
-    },
-  },
-])
-
+```bash
+npm install
+cp .env.example .env   # ajuste VITE_API_URL se necessário
+npm run dev
 ```
 
-You can also install [eslint-plugin-react-x](https://npmx.dev/package/eslint-plugin-react-x) and [eslint-plugin-react-dom](https://npmx.dev/package/eslint-plugin-react-dom) for React-specific lint rules:
+O frontend espera o backend em `http://localhost:3333` (ou o valor de `VITE_API_URL`).
 
-```js
-// eslint.config.js
-import reactX from 'eslint-plugin-react-x'
-import reactDom from 'eslint-plugin-react-dom'
+## Controles
 
-export default defineConfig([
-  globalIgnores(['dist']),
-  {
-    files: ['**/*.{ts,tsx}'],
-    extends: [
-      // Other configs...
-      // Enable lint rules for React
-      reactX.configs['recommended-typescript'],
-      // Enable lint rules for React DOM
-      reactDom.configs.recommended,
-    ],
-    languageOptions: {
-      parserOptions: {
-        project: ['./tsconfig.node.json', './tsconfig.app.json'],
-        tsconfigRootDir: import.meta.dirname,
-      },
-      // other options...
-    },
-  },
-])
+| Ação | Efeito |
+|------|--------|
+| Clique esquerdo no mapa | ⚡ Raio (destruição) |
+| Clique direito no mapa | ✨ Milagre (cria Árvore Anciã) |
+| Clique em um cidadão | Seleciona e mostra detalhes |
+| Botão "Gerar Nova Ilha" | Reseta o mundo |
+
+## Estrutura
 
 ```
+src/
+  App.tsx      # UI principal + canvas
+  types.ts     # Tipos do jogo
+  main.tsx
+  index.css
+```
+
+## Backend
+
+Este frontend é consumido pelo repositório irmão: [god-game-backend](https://github.com/vinisena21/god-game-backend).
