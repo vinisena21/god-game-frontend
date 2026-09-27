@@ -3,8 +3,8 @@ import { Canvas, ThreeEvent, useFrame } from '@react-three/fiber';
 import { OrbitControls, Text, Sky, Cloud, Float } from '@react-three/drei';
 import * as THREE from 'three';
 import type { Agent, Structure, Entity, DivineState, MapMode } from './types';
+import { ElementalParticles, RainParticles } from './Particles';
 
-/** Converte coords do jogo (0–100) para mundo 3D centrado */
 function to3D(x: number, y: number): [number, number, number] {
   return [(x - 50) * 0.6, 0, (y - 50) * 0.6];
 }
@@ -16,32 +16,21 @@ function from3D(px: number, pz: number): { x: number; y: number } {
   };
 }
 
-/* ───────────── Terreno ───────────── */
 function Island() {
-  const geo = useMemo(() => {
-    const g = new THREE.CircleGeometry(38, 64);
-    // leve ruído na altura das bordas via vertex colors
-    return g;
-  }, []);
-
+  const geo = useMemo(() => new THREE.CircleGeometry(38, 64), []);
   return (
     <group>
-      {/* Oceano */}
       <mesh rotation={[-Math.PI / 2, 0, 0]} position={[0, -0.4, 0]} receiveShadow>
         <planeGeometry args={[200, 200]} />
         <meshStandardMaterial color="#0c4a6e" roughness={0.3} metalness={0.2} />
       </mesh>
-      {/* Ilha */}
-      <mesh rotation={[-Math.PI / 2, 0, 0]} position={[0, 0, 0]} receiveShadow geometry={geo}
-        onClick={(e) => e.stopPropagation()}>
+      <mesh rotation={[-Math.PI / 2, 0, 0]} position={[0, 0, 0]} receiveShadow geometry={geo}>
         <meshStandardMaterial color="#4d7c0f" roughness={0.9} />
       </mesh>
-      {/* Areia na beira */}
       <mesh rotation={[-Math.PI / 2, 0, 0]} position={[0, 0.02, 0]}>
         <ringGeometry args={[32, 38, 64]} />
         <meshStandardMaterial color="#ca8a04" roughness={1} />
       </mesh>
-      {/* Rio */}
       <mesh position={[0, 0.05, 0]} rotation={[-Math.PI / 2, 0, 0.15]}>
         <planeGeometry args={[4, 55]} />
         <meshStandardMaterial color="#0284c7" transparent opacity={0.75} roughness={0.2} />
@@ -50,7 +39,6 @@ function Island() {
   );
 }
 
-/* ───────────── Click plane (invisível, captura clique do deus) ───────────── */
 function ClickPlane({ onGroundClick }: { onGroundClick: (x: number, y: number) => void }) {
   const handle = useCallback(
     (e: ThreeEvent<MouseEvent>) => {
@@ -68,7 +56,6 @@ function ClickPlane({ onGroundClick }: { onGroundClick: (x: number, y: number) =
   );
 }
 
-/* ───────────── Árvore procedural ───────────── */
 function Tree3D({ x, y }: { x: number; y: number }) {
   const [px, , pz] = to3D(x, y);
   const h = 1.8 + ((x * 7 + y * 3) % 10) * 0.12;
@@ -90,7 +77,6 @@ function Tree3D({ x, y }: { x: number; y: number }) {
   );
 }
 
-/* ───────────── Jazida ───────────── */
 function Ore3D({ x, y }: { x: number; y: number }) {
   const [px, , pz] = to3D(x, y);
   return (
@@ -107,33 +93,39 @@ function Ore3D({ x, y }: { x: number; y: number }) {
   );
 }
 
-/* ───────────── Animais ───────────── */
 function AnimalBody({
-  x, y, bodyColor, scale = 1, ears = false, horns = false, tall = false,
+  x,
+  y,
+  bodyColor,
+  scale = 1,
+  ears = false,
+  horns = false,
+  tall = false,
 }: {
-  x: number; y: number; bodyColor: string; scale?: number; ears?: boolean; horns?: boolean; tall?: boolean;
+  x: number;
+  y: number;
+  bodyColor: string;
+  scale?: number;
+  ears?: boolean;
+  horns?: boolean;
+  tall?: boolean;
 }) {
   const [px, , pz] = to3D(x, y);
   const ref = useRef<THREE.Group>(null);
   useFrame(({ clock }) => {
-    if (ref.current) {
-      ref.current.position.y = Math.sin(clock.elapsedTime * 3 + x) * 0.04;
-    }
+    if (ref.current) ref.current.position.y = Math.sin(clock.elapsedTime * 3 + x) * 0.04;
   });
   const bh = tall ? 0.55 : 0.35;
   return (
     <group ref={ref} position={[px, 0, pz]} scale={scale}>
-      {/* corpo */}
       <mesh position={[0, bh, 0]} castShadow>
         <capsuleGeometry args={[0.25, 0.35, 4, 8]} />
         <meshStandardMaterial color={bodyColor} roughness={0.85} />
       </mesh>
-      {/* cabeça */}
       <mesh position={[0.28, bh + 0.25, 0]} castShadow>
         <sphereGeometry args={[0.2, 8, 8]} />
         <meshStandardMaterial color={bodyColor} roughness={0.85} />
       </mesh>
-      {/* orelhas */}
       {ears && (
         <>
           <mesh position={[0.3, bh + 0.45, 0.12]}>
@@ -146,7 +138,6 @@ function AnimalBody({
           </mesh>
         </>
       )}
-      {/* chifres cervo */}
       {horns && (
         <>
           <mesh position={[0.25, bh + 0.5, 0.1]} rotation={[0, 0, 0.4]}>
@@ -159,7 +150,6 @@ function AnimalBody({
           </mesh>
         </>
       )}
-      {/* pernas */}
       {[[-0.12, -0.15], [-0.12, 0.15], [0.12, -0.15], [0.12, 0.15]].map(([lx, lz], i) => (
         <mesh key={i} position={[lx, 0.12, lz]} castShadow>
           <cylinderGeometry args={[0.04, 0.04, 0.25, 5]} />
@@ -198,7 +188,6 @@ function EntityMesh({ entity }: { entity: Entity }) {
   }
 }
 
-/* ───────────── Casa ───────────── */
 function House3D({ structure }: { structure: Structure }) {
   const [px, , pz] = to3D(structure.x, structure.y);
   return (
@@ -222,14 +211,11 @@ function House3D({ structure }: { structure: Structure }) {
   );
 }
 
-/* ───────────── Agente (cidadão) ───────────── */
 function Agent3D({ agent, selected }: { agent: Agent; selected: boolean }) {
   const [px, , pz] = to3D(agent.x, agent.y);
   const ref = useRef<THREE.Group>(null);
   useFrame(({ clock }) => {
-    if (ref.current) {
-      ref.current.position.y = Math.sin(clock.elapsedTime * 2.5 + agent.id) * 0.05;
-    }
+    if (ref.current) ref.current.position.y = Math.sin(clock.elapsedTime * 2.5 + agent.id) * 0.05;
   });
   const bodyColor = agent.hp < 30 ? '#ef4444' : '#f1f5f9';
   return (
@@ -240,22 +226,18 @@ function Agent3D({ agent, selected }: { agent: Agent; selected: boolean }) {
           <meshBasicMaterial color="#fbbf24" transparent opacity={0.8} />
         </mesh>
       )}
-      {/* corpo */}
       <mesh position={[0, 0.55, 0]} castShadow>
         <capsuleGeometry args={[0.22, 0.4, 4, 8]} />
         <meshStandardMaterial color={bodyColor} roughness={0.7} />
       </mesh>
-      {/* cabeça */}
       <mesh position={[0, 1.15, 0]} castShadow>
         <sphereGeometry args={[0.22, 10, 10]} />
         <meshStandardMaterial color="#fde68a" roughness={0.6} />
       </mesh>
-      {/* chapéu azul divino */}
       <mesh position={[0, 1.35, 0]}>
         <cylinderGeometry args={[0.18, 0.22, 0.12, 8]} />
         <meshStandardMaterial color="#0ea5e9" />
       </mesh>
-      {/* barra de HP */}
       <mesh position={[0, 1.7, 0]}>
         <planeGeometry args={[0.7, 0.08]} />
         <meshBasicMaterial color="#7f1d1d" />
@@ -276,7 +258,7 @@ function Agent3D({ agent, selected }: { agent: Agent; selected: boolean }) {
   );
 }
 
-/* ───────────── Efeito elementar ───────────── */
+/** Anel de área + partículas do elemento */
 function ElementalFX({ divine }: { divine: DivineState | null }) {
   const lc = divine?.lastCast;
   if (!lc) return null;
@@ -290,20 +272,23 @@ function ElementalFX({ divine }: { divine: DivineState | null }) {
   };
   const r = (lc.radius || 8) * 0.6;
   return (
-    <Float speed={2} floatIntensity={0.3}>
-      <mesh position={[px, 0.3, pz]} rotation={[-Math.PI / 2, 0, 0]}>
-        <ringGeometry args={[r * 0.7, r, 32]} />
-        <meshBasicMaterial color={colors[lc.element] || '#fff'} transparent opacity={0.45} side={THREE.DoubleSide} />
-      </mesh>
-      <mesh position={[px, 1.5, pz]}>
-        <sphereGeometry args={[0.4, 8, 8]} />
-        <meshBasicMaterial color={colors[lc.element] || '#fff'} transparent opacity={0.6} />
-      </mesh>
-    </Float>
+    <>
+      <Float speed={2} floatIntensity={0.3}>
+        <mesh position={[px, 0.3, pz]} rotation={[-Math.PI / 2, 0, 0]}>
+          <ringGeometry args={[r * 0.7, r, 32]} />
+          <meshBasicMaterial
+            color={colors[lc.element] || '#fff'}
+            transparent
+            opacity={0.35}
+            side={THREE.DoubleSide}
+          />
+        </mesh>
+      </Float>
+      <ElementalParticles divine={divine} />
+    </>
   );
 }
 
-/* ───────────── Clima (céu / nuvens) ───────────── */
 function WeatherFX({ weather }: { weather: string }) {
   const w = (weather || '').toLowerCase();
   const sunPos: [number, number, number] = w.includes('tempestade')
@@ -311,23 +296,29 @@ function WeatherFX({ weather }: { weather: string }) {
     : w.includes('nublado')
       ? [20, 8, 10]
       : [40, 20, 30];
+  const raining = w.includes('chuva') || w.includes('tempestade');
+  const heavy = w.includes('tempestade');
 
   return (
     <>
-      <Sky sunPosition={sunPos} turbidity={w.includes('tempestade') ? 12 : 4} rayleigh={w.includes('chuva') ? 1 : 2} />
-      {(w.includes('nublado') || w.includes('chuva') || w.includes('tempestade')) && (
+      <Sky
+        sunPosition={sunPos}
+        turbidity={heavy ? 12 : 4}
+        rayleigh={raining ? 1 : 2}
+      />
+      {(w.includes('nublado') || raining) && (
         <>
           <Cloud position={[-10, 12, -5]} speed={0.2} opacity={0.6} segments={20} />
           <Cloud position={[8, 14, 4]} speed={0.15} opacity={0.5} segments={16} />
           <Cloud position={[0, 13, 10]} speed={0.25} opacity={0.55} segments={18} />
         </>
       )}
-      {w.includes('tempestade') && <ambientLight intensity={0.25} />}
-      {!w.includes('tempestade') && <ambientLight intensity={0.55} />}
+      <RainParticles active={raining} heavy={heavy} />
+      <ambientLight intensity={heavy ? 0.25 : 0.55} />
       <directionalLight
         castShadow
         position={sunPos}
-        intensity={w.includes('tempestade') ? 0.4 : 1.2}
+        intensity={heavy ? 0.4 : 1.2}
         shadow-mapSize-width={1024}
         shadow-mapSize-height={1024}
       />
@@ -335,7 +326,6 @@ function WeatherFX({ weather }: { weather: string }) {
   );
 }
 
-/* ───────────── Cena ───────────── */
 interface World3DProps {
   agents: Agent[];
   structures: Structure[];
