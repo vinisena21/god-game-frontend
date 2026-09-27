@@ -12,13 +12,11 @@ export interface SpatialItem {
 }
 
 export class SpatialHash {
-  private cellSize: number;
   private inv: number;
   private cells = new Map<number, SpatialItem[]>();
   private items: SpatialItem[] = [];
 
   constructor(cellSize = 4) {
-    this.cellSize = cellSize;
     this.inv = 1 / cellSize;
   }
 
