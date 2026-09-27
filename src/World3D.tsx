@@ -1,5 +1,6 @@
 import { useRef, useMemo, useCallback } from 'react';
-import { Canvas, ThreeEvent, useFrame } from '@react-three/fiber';
+import { Canvas, useFrame } from '@react-three/fiber';
+import type { ThreeEvent } from '@react-three/fiber';
 import { OrbitControls, Text, Sky, Cloud, Float } from '@react-three/drei';
 import * as THREE from 'three';
 import type { Agent, Structure, Entity, DivineState, MapMode } from './types';
