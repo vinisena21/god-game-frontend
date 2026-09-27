@@ -1,6 +1,5 @@
 import { useRef, useMemo, useCallback } from 'react';
 import { Canvas, useFrame } from '@react-three/fiber';
-import type { ThreeEvent } from '@react-three/fiber';
 import { OrbitControls, Text, Sky, Cloud, Float } from '@react-three/drei';
 import * as THREE from 'three';
 import type { Agent, Structure, Entity, DivineState, MapMode } from './types';
@@ -42,7 +41,7 @@ function Island() {
 
 function ClickPlane({ onGroundClick }: { onGroundClick: (x: number, y: number) => void }) {
   const handle = useCallback(
-    (e: ThreeEvent<MouseEvent>) => {
+    (e: { stopPropagation: () => void; point: { x: number; z: number } }) => {
       e.stopPropagation();
       const { x, y } = from3D(e.point.x, e.point.z);
       onGroundClick(x, y);
@@ -259,7 +258,6 @@ function Agent3D({ agent, selected }: { agent: Agent; selected: boolean }) {
   );
 }
 
-/** Anel de área + partículas do elemento */
 function ElementalFX({ divine }: { divine: DivineState | null }) {
   const lc = divine?.lastCast;
   if (!lc) return null;
@@ -302,11 +300,7 @@ function WeatherFX({ weather }: { weather: string }) {
 
   return (
     <>
-      <Sky
-        sunPosition={sunPos}
-        turbidity={heavy ? 12 : 4}
-        rayleigh={raining ? 1 : 2}
-      />
+      <Sky sunPosition={sunPos} turbidity={heavy ? 12 : 4} rayleigh={raining ? 1 : 2} />
       {(w.includes('nublado') || raining) && (
         <>
           <Cloud position={[-10, 12, -5]} speed={0.2} opacity={0.6} segments={20} />
