@@ -44,12 +44,22 @@ export interface GameEvent {
   message: string;
 }
 
+export interface DivineState {
+  energy: number;
+  maxEnergy: number;
+  regenPerTick: number;
+  /** action → ticks restantes de cooldown */
+  cooldowns: Record<string, number>;
+  costs: Record<string, number>;
+}
+
 export interface GameState {
   world: WorldState;
   agents: Agent[];
   structures: Structure[];
   entities: Entity[];
   events: GameEvent[];
+  divine?: DivineState;
 }
 
 export type GodAction = 'RAIO' | 'MILAGRE';
